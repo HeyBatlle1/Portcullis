@@ -1,0 +1,63 @@
+# ── Rust ────────────────────────────────────────────
+/target
+**/*.rs.bk
+*.pdb
+*.profraw
+
+# ── Node / frontend ─────────────────────────────────
+node_modules/
+dist/
+build/
+.vite/
+.next/
+out/
+*.tsbuildinfo
+.pnp.*
+.yarn/*
+!.yarn/releases
+
+# ── Secrets: the part that matters ──────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+credentials.json
+service-account*.json
+secrets/
+.secrets/
+
+# ── Wallet material (PYUSD / testnet) ───────────────
+*.mnemonic
+*.seed
+wallet.json
+keystore/
+.wallet/
+
+# ── MCP config (publish the example, not the real one)
+.mcp.json
+!.mcp.json.example
+
+# ── Claude Code ─────────────────────────────────────
+.claude/
+CLAUDE.local.md
+
+# ── Local data / logs ───────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+coverage/
+
+# ── OS / editor ─────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*~
