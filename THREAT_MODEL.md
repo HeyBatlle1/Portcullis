@@ -72,6 +72,30 @@ way, can spend the discretionary balance. That is the worst case by construction
 not by configuration, and the mitigation is to not keep much there. Funds are
 pushed in; no account is linked for the agent to pull from.
 
+## Between the decision and the money
+
+An Allow is not a payment. A payout sits `PENDING` at the rail for a while, and
+everything in that gap is a place for the same money to be spent twice.
+
+- **The money is held the instant it is allowed.** `adjudicate()` decides and
+  reserves in one step under one `&mut Ledger`, and `available` subtracts every
+  reservation. Ten proposals fired in one second are judged against ten
+  successively smaller balances. Velocity and rolling-window limits count
+  in-flight payments, not only settled ones.
+- **What gets paid is what was authorized.** The payment is built from the
+  canonical recipient in policy, never from the agent's spelling, and the
+  agent's `purpose` text is not in the `Payment` type at all, so it cannot reach
+  the recipient's inbox as a payout note.
+- **Only a definitive answer releases money.** A timeout, a 5xx, or a body we
+  cannot read means the payout may exist. The reservation stays and the executor
+  asks again with the same idempotency key. If policy changes while an outcome is
+  unknown, the executor neither resends (that could create the payment under a
+  policy that now forbids it) nor releases (that could free money that already
+  left) — the payment is marked unresolved and held for a human. Holding money
+  unnecessarily is an inconvenience; releasing money that left is a double-spend.
+- **Sandbox only, by construction.** The executor's one remote host is the PayPal
+  sandbox, as a constant. There is no configuration that supplies another.
+
 ## The attack that is left
 
 Once the kernel is deterministic and the agent can only propose, there is no
@@ -125,14 +149,22 @@ Stated plainly, because a threat model that only lists wins is marketing.
   attention; it cannot force attention. If the console is never opened, the
   timelock expires and the recipient goes live.
 - **A compromised executor.** The kernel decides; something else moves money. An
-  executor that ignores decisions is outside this model's reach. Mitigation is that
-  it accepts only a signed `Adjudication` naming the current `policy_version`,
-  so it cannot invent authorizations or replay one made under a looser policy.
+  executor that ignores decisions is outside this model's reach. What the design
+  does buy: an `Adjudication` can only be constructed by the kernel (private
+  fields, no `Deserialize`), so code in the same process cannot forge one, and
+  `executable()` refuses one made under a different policy head or with no live
+  reservation. That holds *within one process*. Split kernel and executor across a
+  process boundary and the adjudication needs a real signature — it does not have
+  one today, and we do not pretend the type system crosses a socket.
 - **A policy that is simply too permissive.** Valid primitives, signed correctly,
   and wrong. No mechanism here saves you from authorizing something you shouldn't.
 - **Address poisoning.** A lookalike recipient matching the first and last few
-  characters of a real one. Mitigation is interface-level: always display the full
-  string, never a truncation, and mark any recipient never seen before.
+  characters of a real one. Two layers. At parse time, recipients are ASCII-only
+  and never trimmed or Unicode-folded, so a homoglyph cannot *equal* an allowed
+  address (U+212A KELVIN SIGN used to fold to `k` and match — see `in_flight.rs`).
+  A different-but-similar ASCII address is a different address, and is only
+  stopped if nobody allowed it; that part stays interface-level: always display
+  the full string, never a truncation, and mark any recipient never seen before.
 
 ## Not yet implemented
 
@@ -140,7 +172,12 @@ This is a hackathon build. Honest status:
 
 - The `Verifier` trait is implemented in tests only, over a toy construction. A
   real deployment needs ed25519 for the software path and a hardware adapter.
-- No executor exists yet. The kernel decides; nothing moves money.
-- `Adjudication` is defined but not yet signed or enforced at the executor.
+- Signer keys are not validated at registration. We guard where a key *lives*
+  (hardware, non-exportable) and not yet whether it was sound when it was *born*.
+- `Adjudication` is unforgeable within one process only; see "A compromised
+  executor" above.
+- Ledger, policy log and execution records are in memory. A crash with a payment
+  `Pending` is recoverable — resubmitting with the same `PayPal-Request-Id`
+  returns the original — but only if the reservation itself survived, and today
+  it does not survive a restart.
 - Rate-limiting on amendment frequency is designed but not built.
-- The policy log is in memory; durable, appendable storage is not written.
