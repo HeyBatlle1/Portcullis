@@ -5,13 +5,18 @@
 //! That is deliberate: a refusal must always be able to name the rule that caused
 //! it, and a script that returns `false` has no name.
 
-use crate::types::{AssetId, Duration, RecipientId, Timestamp};
+use crate::types::{AssetId, Duration, Hash, RecipientId, Timestamp};
 use serde::{Deserialize, Serialize};
 
 /// Every reason the kernel can refuse. Closed, exhaustive, and stable enough to
 /// print on a screen or key a help page from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RuleId {
+    /// The recipient string is not a payable address: non-ASCII, whitespace, or
+    /// no grammar accepts it. Checked before anything else.
+    RecipientMalformed,
+    /// A proposal with this id has already been reserved or settled.
+    DuplicateProposal,
     /// The proposal's asset is not this ledger's asset. The kernel does not convert.
     AssetMismatch,
     /// The asset is not in the policy's allowed set.
@@ -50,6 +55,8 @@ impl RuleId {
     /// One line, in the interface's voice, for the human reading the refusal.
     pub fn reason(&self) -> &'static str {
         match self {
+            RuleId::RecipientMalformed => "recipient is not a well-formed address",
+            RuleId::DuplicateProposal => "this proposal was already decided and paid or in flight",
             RuleId::AssetMismatch => "wrong asset for this ledger",
             RuleId::AssetNotAllowed => "asset is not allowed by policy",
             RuleId::RecipientNotAllowed => "recipient is not in the allowlist",
@@ -117,15 +124,23 @@ impl StandingRecipient {
 pub struct Policy {
     pub standing: Vec<StandingRecipient>,
     pub rules: Vec<Rule>,
-    /// How many amendments produced this policy. Printed beside every decision so
-    /// an audit entry can be tied to the exact policy that produced it.
+    /// How many amendments produced this policy. For humans; a short number to
+    /// print beside a decision.
     pub version: u64,
+    /// Digest of the last log entry replayed into this policy. This, not
+    /// `version`, is what an [`crate::Adjudication`] binds to: two different logs
+    /// can have the same length, but not the same head.
+    ///
+    /// Neither one captures time. A policy replayed later can differ from one
+    /// replayed earlier at the same head, because a timelocked grant matured in
+    /// between. That is safe by construction — only *widening* waits on a
+    /// timelock, so a decision made before maturity is never looser than the
+    /// policy in force after it.
+    pub head: Hash,
 }
 
 impl Policy {
     pub fn standing_for(&self, recipient: &RecipientId) -> Option<&StandingRecipient> {
-        self.standing
-            .iter()
-            .find(|s| s.recipient.matches(recipient))
+        self.standing.iter().find(|s| &s.recipient == recipient)
     }
 }

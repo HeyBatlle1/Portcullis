@@ -17,9 +17,12 @@
 //! - [`Decision`] — [`Decision::Allow`] or [`Decision::Refuse`]. Two states. There
 //!   is no human approval queue; a runtime override would reduce every guarantee
 //!   here to whatever somebody clicked while distracted.
-//! - [`Ledger`] — balance, commitments, settlement history. Enforces
-//!   `available = balance - encumbered`, which is what makes an earmark real
-//!   rather than decorative.
+//! - [`Ledger`] — balance, commitments, in-flight reservations, settlement
+//!   history. Enforces `available = balance - reserved - encumbered`: an earmark
+//!   is real rather than decorative, and an Allow takes its money off the table
+//!   the moment it is issued rather than when the rail gets round to settling.
+//! - [`adjudicate`] — [`decide`] plus the reservation, in one step, producing
+//!   the [`Adjudication`] that is the only thing an executor will act on.
 //! - [`Policy`] — standing recipients and a closed set of rule primitives. No
 //!   scripting, so every refusal can name the [`RuleId`] that caused it.
 //! - [`PolicyLog`] — append-only, hash-chained, signed. Policy is replayed from
@@ -41,12 +44,15 @@ pub mod policy;
 pub mod proposal;
 pub mod types;
 
-pub use amendment::{Amendment, Hash, LogError, PolicyLog, SignedAmendment, Verifier};
-pub use decide::decide;
-pub use ledger::{forecast, Commitment, CommitmentForecast, CommitmentState, Ledger, Settled};
+pub use amendment::{Amendment, LogError, PolicyLog, SignedAmendment, Verifier};
+pub use decide::{adjudicate, decide};
+pub use ledger::{
+    forecast, Commitment, CommitmentForecast, CommitmentState, Ledger, LedgerError, Reservation,
+    Settled,
+};
 pub use policy::{Policy, Rule, RuleId, StandingRecipient};
-pub use proposal::{Adjudication, Authorization, Decision, Proposal};
+pub use proposal::{Adjudication, Authorization, Decision, NotExecutable, Payment, Proposal};
 pub use types::{
-    AgentId, Amount, AssetId, CommitmentId, Duration, ProposalId, RecipientId, TimeWindow,
-    Timestamp,
+    hex, AgentId, Amount, AssetId, CommitmentId, Duration, Hash, ProposalId, RecipientError,
+    RecipientId, RecipientKind, TimeWindow, Timestamp,
 };

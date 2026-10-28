@@ -17,16 +17,10 @@
 //!   immediate — reducing what an agent can do is always safe, so it never waits.
 
 use crate::policy::{Policy, Rule, StandingRecipient};
+pub use crate::types::{hex, Hash};
 use crate::types::{Duration, RecipientId, Timestamp};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-/// 32 raw bytes, hex on display.
-pub type Hash = [u8; 32];
-
-pub fn hex(h: &Hash) -> String {
-    h.iter().map(|b| format!("{b:02x}")).collect()
-}
 
 /// Verifies a detached signature. The kernel never signs and never holds a
 /// private key; it only ever asks "was this signed by that key?".
@@ -105,13 +99,13 @@ fn canonical_body(a: &Amendment) -> Vec<u8> {
             activation_delay,
         } => {
             v.push(1);
-            v.extend_from_slice(recipient.canonical().as_str().as_bytes());
+            v.extend_from_slice(recipient.as_str().as_bytes());
             v.push(0);
             v.extend_from_slice(&activation_delay.to_be_bytes());
         }
         Amendment::RemoveStandingRecipient { recipient } => {
             v.push(2);
-            v.extend_from_slice(recipient.canonical().as_str().as_bytes());
+            v.extend_from_slice(recipient.as_str().as_bytes());
         }
         Amendment::AddRule { rule } => {
             v.push(3);
@@ -246,15 +240,15 @@ impl PolicyLog {
                     activation_delay,
                 } => {
                     let active_from = e.signed_at.saturating_add(*activation_delay);
-                    policy.standing.retain(|s| !s.recipient.matches(recipient));
+                    policy.standing.retain(|s| &s.recipient != recipient);
                     policy.standing.push(StandingRecipient {
-                        recipient: recipient.canonical(),
+                        recipient: recipient.clone(),
                         added_at: e.signed_at,
                         active_from,
                     });
                 }
                 Amendment::RemoveStandingRecipient { recipient } => {
-                    policy.standing.retain(|s| !s.recipient.matches(recipient));
+                    policy.standing.retain(|s| &s.recipient != recipient);
                 }
                 Amendment::AddRule { rule } => {
                     if !policy.rules.contains(rule) {
@@ -268,6 +262,7 @@ impl PolicyLog {
                 }
             }
             policy.version = e.seq + 1;
+            policy.head = e.digest();
         }
         policy
     }
