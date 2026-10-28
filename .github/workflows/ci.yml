@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only. A test run has no reason to be able to write anything.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # --locked fails if Cargo.lock would need to change. The lock file is
+      # committed precisely so a judge, a reviewer, or a release build resolves
+      # the same dependency graph we tested against.
+      - name: Build
+        run: cargo build --locked --all-targets
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  # The kernel's security claim is that nothing in it can reach a model, a
+  # network, a clock or a source of randomness. That claim lives in the
+  # dependency graph, so the dependency graph gets tested like any other
+  # invariant rather than being asserted in a README.
+  kernel-purity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: The kernel's dependency graph stays thin and inert
+        run: |
+          cargo tree -p portcullis-kernel --edges normal --prefix none \
+            | awk '{print $1}' | sort -u > /tmp/deps.txt
+          echo "--- transitive dependencies of portcullis-kernel ---"
+          cat /tmp/deps.txt
+
+          BANNED='^(tokio|reqwest|hyper|ureq|curl|surf|async-std|smol|mio|socket2|chrono|time|rand|getrandom|openssl|rustls|native-tls|ring)$'
+          if grep -Eq "$BANNED" /tmp/deps.txt; then
+            echo "::error::A dependency that can reach the network, a clock, or randomness entered the kernel."
+            grep -E "$BANNED" /tmp/deps.txt
+            exit 1
+          fi
+          echo "Kernel dependency graph is clean."

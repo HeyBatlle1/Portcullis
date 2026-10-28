@@ -1,0 +1,75 @@
+# Signed build provenance for every release artifact.
+#
+# Why this file exists: on 21 Oct 2026 the LiteLLM project shipped a malicious
+# 1.107.0 to PyPI and Docker Hub. The release ran with its source owner
+# overridden to `Berri-AI` — one hyphen away from the real `BerriAI` — and the
+# commits that planted the payload never appeared in the tagged release's
+# manifest. Reviewing the tag showed nothing wrong. The tag was clean; the thing
+# that built the artifact was not.
+#
+# Attestation closes exactly that gap. It binds the artifact to the repository,
+# commit and workflow run that produced it, signed by GitHub's OIDC identity and
+# recorded publicly. A lookalike org cannot forge a provenance statement naming
+# this repository, and a build from an unreviewed commit cannot hide behind a
+# reviewed tag.
+#
+# Verify any release with:
+#   gh attestation verify <file> --repo HeyBatlle1/Portcullis
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write       # mint the OIDC token that signs the attestation
+  attestations: write   # record it
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  attest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Nothing ships that has not passed the invariant tests. The release path
+      # re-runs them rather than trusting that CI did, because a release built
+      # from an unverified tree is the whole problem this file addresses.
+      - name: Test before packaging
+        run: cargo test --locked
+
+      - name: Package
+        run: cargo package --locked -p portcullis-kernel
+
+      - name: List what we are about to attest
+        run: ls -l target/package/*.crate
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'target/package/*.crate'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crate
+          path: target/package/*.crate
+
+# Known gap, stated rather than hidden:
+#
+# The actions above are pinned to tags, not to commit SHAs. A tag is mutable by
+# whoever controls the action's repository, so a compromised upstream action
+# could change what `@v4` means without this file changing. Pinning each `uses:`
+# to a full 40-character SHA removes that, at the cost of manual updates.
+#
+# This is the same class of failure the header describes, one level up the
+# supply chain. It is listed here because an unstated gap is worse than a known
+# one — see THREAT_MODEL.md, which follows the same rule.
