@@ -1,0 +1,28 @@
+[package]
+name = "portcullis-mcp"
+description = "The agent-facing surface. Propose, and read. Nothing else exists here."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "portcullis"
+path = "src/main.rs"
+
+[dependencies]
+portcullis-kernel = { path = "../kernel" }
+portcullis-executor = { path = "../executor" }
+rmcp = { version = "3.8.0", features = ["server", "macros", "schemars", "transport-streamable-http-server"] }
+schemars = "1.1"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+http = "1"
+tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time", "net", "signal"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+sha2 = "0.10.9"
+uuid = { version = "1", features = ["v4"] }
+getrandom = "0.3"
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json"] }

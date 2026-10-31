@@ -24,7 +24,8 @@ use tokio::sync::Mutex;
 pub const MAX_ATTEMPTS: u32 = 5;
 
 /// Where one allowed payment is in its life.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
 pub enum Execution {
     /// Not yet confirmed to exist at the rail. `attempts` counts sends whose
     /// outcome was unknown; while it is zero, nothing has ever been sent.
@@ -44,7 +45,8 @@ pub enum Execution {
 }
 
 /// Something worth writing to the audit log or showing on the console.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     Submitted {
         proposal: ProposalId,

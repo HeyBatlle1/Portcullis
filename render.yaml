@@ -1,0 +1,23 @@
+# Render blueprint. Secrets are declared `sync: false`: Render asks for them in
+# its dashboard and they never live in this repository.
+services:
+  - type: web
+    name: portcullis
+    runtime: rust
+    plan: starter            # free instances sleep; a judge would meet a cold start
+    buildCommand: cargo build --release --locked -p portcullis-mcp
+    startCommand: ./target/release/portcullis serve
+    healthCheckPath: /health
+    envVars:
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_SANDBOX_RECEIVER
+        sync: false
+      - key: PORTCULLIS_AGENT_TOKENS      # name:sha256 pairs from `portcullis mint-token`
+        sync: false
+      - key: PORTCULLIS_ALLOWED_HOSTS     # the service's public hostname
+        sync: false

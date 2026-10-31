@@ -23,9 +23,31 @@ the key.
 Portcullis inverts it. The agent proposes; a separate process with no language model in
 it disposes.
 
+## Layout
+
+| crate | what it is | touches |
+|---|---|---|
+| `crates/kernel` | `decide()` and `adjudicate()`: policy, ledger, the signed amendment log | nothing — no I/O, no clock, no randomness (CI enforces it) |
+| `crates/executor` | turns adjudications into PayPal sandbox payouts; only a definitive answer from the rail releases money | the PayPal sandbox, and only the sandbox |
+| `crates/mcp` | the agent's entire surface: four tools over MCP Streamable HTTP | the network, behind per-agent tokens |
+
+## Running it
+
+```sh
+cargo test                                   # everything except the live sandbox test
+cargo run -p portcullis-mcp -- mint-token my-agent   # prints a token once, and the hash to configure
+# set PAYPAL_* and PORTCULLIS_AGENT_TOKENS (see crates/mcp/src/main.rs), then:
+cargo run -p portcullis-mcp -- serve
+```
+
+Any MCP client connects the same way it would to PayPal's own MCP server:
+`npx mcp-remote https://<host>/mcp --header "Authorization: Bearer <token>"`.
+
 ## Status
 
-Early. Built for the PayPal *Build What's Next with PayPal and AI* hackathon, November 2026.
+Built for the PayPal *Build What's Next with PayPal and AI* hackathon, November 2026.
+Working end to end against the PayPal sandbox. See `THREAT_MODEL.md` — including
+what is not built yet.
 
 ## License
 

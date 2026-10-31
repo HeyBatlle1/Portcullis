@@ -45,6 +45,17 @@ by `decide()`. `tests/invariants.rs::the_purpose_string_cannot_change_a_decision
 holds two proposals identical but for that field — one carrying an injection
 payload — and asserts the decisions are equal.
 
+## The agent's whole surface
+
+The MCP server (`crates/mcp`) exposes four tools and nothing else:
+`propose_payment`, `get_proposal` (your own only), `get_balance`,
+`list_commitments`. `tests/surface.rs` asserts the tool list is exactly those
+four. Requests without a valid agent token are refused with a 401 by an HTTP
+layer *in front of* MCP, so tool code never runs unauthenticated. Proposal ids
+are assigned by the server; an agent cannot choose one. Amounts are parsed as
+exact decimals — signs, exponents and extra precision are refused, never
+rounded.
+
 ## What the kernel guarantees
 
 `decide(&Ledger, &Policy, &Proposal, now) -> Decision` is a pure function. No I/O,
@@ -181,3 +192,10 @@ This is a hackathon build. Honest status:
   returns the original — but only if the reservation itself survived, and today
   it does not survive a restart.
 - Rate-limiting on amendment frequency is designed but not built.
+- **The hosted demo's policy is loaded from `demo/seed.json`, not replayed from a
+  signed log.** The kernel's `PolicyLog` is built and tested, but there is no
+  ed25519 `Verifier` and no durable log store yet, so the running server trusts
+  its seed file — exactly the trust the signed log exists to remove.
+- Agent tokens identify an agent and grant only `propose`. They are bearer
+  tokens: whoever holds one can propose as that agent. The server stores only
+  their SHA-256.

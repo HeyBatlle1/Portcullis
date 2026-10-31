@@ -1,0 +1,27 @@
+{
+  "asset": { "symbol": "USD", "decimals": 2 },
+  "balance": 50000,
+
+  "standing": [
+    { "recipient": "${PAYPAL_SANDBOX_RECEIVER}", "added": -604800, "active": -518400 }
+  ],
+
+  "rules": [
+    { "PerTransactionMax": { "minor": 5000 } },
+    { "RollingWindowMax": { "minor": 15000, "window": 86400 } },
+    { "VelocityMax": { "count": 10, "window": 3600 } },
+    { "BalanceFloor": { "minor": 2000 } },
+    { "AssetAllowlist": { "assets": [ { "symbol": "USD", "decimals": 2 } ] } }
+  ],
+
+  "commitments": [
+    {
+      "id": "rent-nov",
+      "recipient": "${PAYPAL_SANDBOX_RECEIVER}",
+      "earmarked": 30000,
+      "opens": -3600,
+      "closes": 604800,
+      "memo": "November studio rent"
+    }
+  ]
+}
