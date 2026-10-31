@@ -361,3 +361,58 @@ fn the_adjudication_binds_what_the_agent_said() {
     // …but the record of it cannot be swapped afterwards.
     assert_ne!(a.digest(), b.digest());
 }
+
+// ── auto-matching a scheduled payment ───────────────────────────────────────
+
+/// A payee can be both a standing vendor and the recipient of a scheduled
+/// payment. A small ordinary payment to them must not be read as a draw on the
+/// schedule: that would skip the per-transaction cap, and mark a $300 rent
+/// "paid" by a $40 purchase while releasing the other $260 to the agent.
+#[test]
+fn a_smaller_payment_to_a_scheduled_payee_is_not_a_silent_partial_draw() {
+    let mut l = Ledger::new(AssetId::usd(), 100_000);
+    l.commitments.push(rent(30_000));
+    let mut p = policy(vec![Rule::PerTransactionMax { minor: 5_000 }]);
+    p.standing[0].recipient = rid("landlord@example.com");
+
+    // $40: discretionary, under the cap, allowed — and the rent is untouched.
+    let small = adjudicate(
+        &mut l,
+        &p,
+        &proposal("p1", "landlord@example.com", 4_000),
+        T0,
+    );
+    assert_eq!(
+        small.decision(),
+        &Decision::Allow {
+            via: Authorization::Discretionary
+        }
+    );
+    assert_eq!(l.commitments[0].state, CommitmentState::Open);
+
+    // $299: discretionary too, so the cap applies.
+    let big = adjudicate(
+        &mut l,
+        &p,
+        &proposal("p2", "landlord@example.com", 29_900),
+        T0,
+    );
+    assert_eq!(
+        big.decision().refused_by(),
+        Some(RuleId::ExceedsPerTransaction)
+    );
+
+    // Exactly $300 is unmistakably the rent.
+    let exact = adjudicate(
+        &mut l,
+        &p,
+        &proposal("p3", "landlord@example.com", 30_000),
+        T0,
+    );
+    assert_eq!(
+        exact.decision(),
+        &Decision::Allow {
+            via: Authorization::Commitment(CommitmentId::new("rent-nov"))
+        }
+    );
+}

@@ -153,9 +153,16 @@ impl Ledger {
         self.reservation(id).is_some() || self.settled.iter().any(|s| &s.proposal == id)
     }
 
-    /// The single open commitment this proposal could be drawing against, if
+    /// The single open commitment this proposal is unmistakably paying, if
     /// exactly one matches. Ambiguity is not resolved by guessing: with two
     /// candidates this returns `None` and the agent must name one explicitly.
+    ///
+    /// "Unmistakably" means the **exact** amount. A smaller payment to a payee
+    /// who also has a scheduled payment is an ordinary discretionary payment,
+    /// not a partial draw: matching it to the commitment would let it skip the
+    /// discretionary limits and mark the schedule paid when it was not. An agent
+    /// that does mean a partial draw must name the commitment, which is an
+    /// assertion the kernel checks.
     pub fn auto_match(
         &self,
         recipient: &RecipientId,
@@ -164,7 +171,7 @@ impl Ledger {
     ) -> Option<&Commitment> {
         let mut found: Option<&Commitment> = None;
         for c in &self.commitments {
-            if c.is_drawable(now) && &c.recipient == recipient && minor <= c.earmarked {
+            if c.is_drawable(now) && &c.recipient == recipient && minor == c.earmarked {
                 if found.is_some() {
                     return None;
                 }
