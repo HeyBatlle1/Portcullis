@@ -86,7 +86,8 @@ fn serve() -> Result<(), String> {
         policy,
         PayPal::new(Endpoint::sandbox(), creds),
     ));
-    let audit: portcullis_mcp::AuditSink = Arc::new(|v| println!("{v}"));
+    let chain: portcullis_mcp::SharedAudit = Default::default();
+    let audit = portcullis_mcp::chained_sink(chain.clone(), Arc::new(unix_now));
     let server = Portcullis::new(gate.clone(), Arc::new(unix_now), audit.clone());
     let router = app(server, tokens, hosts.clone());
 

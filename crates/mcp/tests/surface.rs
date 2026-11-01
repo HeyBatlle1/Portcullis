@@ -361,3 +361,16 @@ async fn an_essay_in_purpose_is_refused_at_the_door() {
         "never reached the kernel"
     );
 }
+
+#[test]
+fn the_audit_sink_builds_a_verifiable_chain() {
+    let chain: portcullis_mcp::SharedAudit = Default::default();
+    let sink = portcullis_mcp::chained_sink(chain.clone(), Arc::new(|| T0));
+    sink(json!({"kind":"decision","proposal":{"agent":"alice"}}));
+    sink(json!({"kind":"execution","event":{"event":"submitted"}}));
+    let c = chain.lock().unwrap();
+    assert_eq!(c.len(), 2);
+    assert_eq!(c.records()[0].kind, "decision");
+    assert_eq!(c.records()[1].prev, c.records()[0].hash);
+    assert_eq!(c.verify(), Ok(()));
+}

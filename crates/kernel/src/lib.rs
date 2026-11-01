@@ -38,6 +38,7 @@
 #![forbid(unsafe_code)]
 
 pub mod amendment;
+pub mod audit;
 pub mod decide;
 pub mod ledger;
 pub mod policy;
@@ -45,6 +46,7 @@ pub mod proposal;
 pub mod types;
 
 pub use amendment::{Amendment, LogError, PolicyLog, SignedAmendment, Verifier};
+pub use audit::{AuditChain, AuditError, AuditRecord};
 pub use decide::{adjudicate, decide};
 pub use ledger::{
     forecast, Commitment, CommitmentForecast, CommitmentState, Ledger, LedgerError, Reservation,

@@ -53,8 +53,27 @@ pub const MAX_PURPOSE: usize = 1000;
 /// The clock, injected so tests are deterministic.
 pub type Clock = Arc<dyn Fn() -> Timestamp + Send + Sync>;
 
-/// Where decisions are written. The binary prints JSON lines; tests collect.
+/// Where decisions are written. The binary chains and prints them; tests collect.
 pub type AuditSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
+
+/// The shared, hash-chained record of every decision and execution event.
+pub type SharedAudit = Arc<std::sync::Mutex<portcullis_kernel::AuditChain>>;
+
+/// A sink that appends each event to the chain — `kind` from the event's own
+/// `kind` field, the body as the exact JSON text that is hashed — and prints
+/// the resulting record as one JSON line, so the platform's log is a copy of
+/// the chain that can be verified independently of this process.
+pub fn chained_sink(chain: SharedAudit, clock: Clock) -> AuditSink {
+    Arc::new(move |event: serde_json::Value| {
+        let kind = event["kind"].as_str().unwrap_or("event").to_string();
+        let body = event.to_string();
+        let mut c = chain
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let record = c.append(clock(), &kind, body);
+        println!("{}", serde_json::to_string(record).unwrap_or_default());
+    })
+}
 
 // ── auth ────────────────────────────────────────────────────────────────────
 
