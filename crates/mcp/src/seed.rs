@@ -66,7 +66,18 @@ pub fn expand(text: &str) -> Result<String, String> {
             return Err(format!("seed may not reference ${{{name}}}"));
         }
         let v = std::env::var(name).map_err(|_| format!("{name} is not set"))?;
-        out.push_str(&v);
+        // A pasted value often drags a trailing newline along with it. Refuse
+        // it by name rather than trim it: nothing in this system trims.
+        if v.is_empty() || v.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            return Err(format!(
+                "{name} is empty or contains whitespace or a line break \
+                 (often a trailing newline from pasting)"
+            ));
+        }
+        // Escaped, never spliced: a value containing `"` must not be able to
+        // add fields to the policy it is substituted into.
+        let quoted = serde_json::to_string(&v).map_err(|e| e.to_string())?;
+        out.push_str(&quoted[1..quoted.len() - 1]);
         rest = &after[end + 1..];
     }
     out.push_str(rest);
@@ -107,5 +118,39 @@ impl Seed {
             head: [0u8; 32],
         };
         Ok((ledger, policy))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Each test uses its own variable: tests run in parallel and share the
+    // process environment.
+
+    #[test]
+    fn a_trailing_newline_is_refused_by_name() {
+        std::env::set_var("PAYPAL_SANDBOX_T_NEWLINE", "someone@example.com\n");
+        let e = expand("\"${PAYPAL_SANDBOX_T_NEWLINE}\"").unwrap_err();
+        assert!(e.contains("PAYPAL_SANDBOX_T_NEWLINE"), "{e}");
+    }
+
+    #[test]
+    fn a_value_cannot_inject_json_into_the_seed() {
+        std::env::set_var(
+            "PORTCULLIS_T_INJECT",
+            r#"a@example.com","standing":[{"recipient":"evil@example.com"}],"x":""#,
+        );
+        let out = expand(r#"{"r":"${PORTCULLIS_T_INJECT}"}"#).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        // Still one field, holding the whole value as a string.
+        assert_eq!(v.as_object().unwrap().len(), 1);
+        assert!(v["r"].as_str().unwrap().contains("evil@example.com"));
+    }
+
+    #[test]
+    fn only_portcullis_and_sandbox_variables_expand() {
+        assert!(expand("${PAYPAL_CLIENT_SECRET}").is_err());
+        assert!(expand("${HOME}").is_err());
     }
 }
