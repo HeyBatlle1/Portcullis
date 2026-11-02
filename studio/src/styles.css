@@ -9,7 +9,7 @@ body { background: var(--paper); color: var(--ink); font: 14px/1.45 var(--sans);
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .boot { padding: 40px; color: var(--soft); }
 
-.desk { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.desk { height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
 .desk main { min-height: 0; }
 .bar { background: var(--ink); color: var(--sheet); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 20px; }
 .bar .mark { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
@@ -33,8 +33,8 @@ body { background: var(--paper); color: var(--ink); font: 14px/1.45 var(--sans);
 .stamp-rule code { font: 11px var(--mono); color: var(--soft); overflow-wrap: anywhere; }
 
 /* chain seal */
-.seal { height: 100%; display: flex; align-items: center; gap: 16px; padding: 4px 6px; }
-.seal-ring svg { width: 54px; height: 54px; fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.seal { height: 100%; overflow: hidden; display: flex; align-items: flex-start; gap: 14px; padding: 2px 4px; }
+.seal-ring svg { width: 46px; height: 46px; flex: none; fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .seal.ok svg { stroke: var(--ok); }
 .seal.bad svg { stroke: var(--red); }
 .seal-text { display: grid; gap: 3px; min-width: 0; }
@@ -45,7 +45,7 @@ body { background: var(--paper); color: var(--ink); font: 14px/1.45 var(--sans);
 .seal-text code { font: 11px var(--mono); color: var(--soft); overflow-wrap: anywhere; }
 
 /* headroom */
-.headroom { height: 100%; display: grid; gap: 14px; align-content: center; padding: 2px 4px; }
+.headroom { height: 100%; overflow: auto; display: grid; gap: 12px; align-content: start; padding: 2px 4px; }
 .meter-label { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; flex-wrap: wrap; }
 .meter-label span { color: var(--soft); }
 .meter-label em { font-style: normal; color: var(--soft); font-weight: 400; }
@@ -53,3 +53,7 @@ body { background: var(--paper); color: var(--ink); font: 14px/1.45 var(--sans);
 .meter-fill { height: 100%; background: var(--ink); }
 .meter-fill.calm { background: var(--ok); }
 .headroom-foot { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--soft); }
+
+.pages { display: flex; gap: 2px; padding: 0 20px; background: var(--ink); }
+.pages button { font: inherit; font-size: 13px; color: #b9c4dd; background: none; border: 0; border-bottom: 3px solid transparent; padding: 6px 12px 8px; cursor: pointer; }
+.pages button[aria-current="page"] { color: var(--sheet); border-bottom-color: var(--amber); }

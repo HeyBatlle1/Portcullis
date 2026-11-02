@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AgStudioAiModule, type AgAiHarness, type AgStudioMode } from 'ag-studio';
+import { AgStudioAiModule, type AgAiHarness, type AgStudioApi, type AgStudioMode } from 'ag-studio';
 import { AgStudio, AgStudioProvider } from 'ag-studio-react';
 import { buildData } from './data';
 import { onRecord, start, useFeed } from './feed';
@@ -40,6 +40,14 @@ function Desk({ config }: { config: Config }) {
   const [watching, setWatching] = useState(false);
   const [sentinelNote, setSentinelNote] = useState('');
   const harness = useRef<AgAiHarness | null>(null);
+  const api = useRef<AgStudioApi<any> | null>(null);
+  const [page, setPage] = useState('desk');
+  const [pages, setPages] = useState<{ id: string; title: string }[]>([]);
+  const go = (id: string) => {
+    const a = api.current;
+    if (!a) return;
+    a.setState({ ...a.getState(), selectedPageId: id });
+  };
 
   // Rebuild Studio's tables when the chain grows. The records are the only input.
   const data = useMemo(() => buildData(feed.records), [feed.records]);
@@ -68,6 +76,7 @@ function Desk({ config }: { config: Config }) {
         const h = harness.current;
         if (!h) return;
         setSentinelNote(`Sentinel is updating its page: ${p.n} new refusal${p.n > 1 ? 's' : ''}.`);
+        go('alerts');
         const session = await h.createThread({ agentId: 'sentinel', title: 'Sentinel: new refusals' });
         session.sendMessage(
           `${p.n} new refusal${p.n > 1 ? 's' : ''} just arrived (${[...p.rules].join(', ')}). Update the Sentinel page.`,
@@ -79,6 +88,11 @@ function Desk({ config }: { config: Config }) {
       clearTimeout(timer);
     };
   }, [watching]);
+
+  function sync(state: any) {
+    setPage(state.selectedPageId);
+    setPages(state.pages.map((p: any) => ({ id: p.id, title: p.title ?? p.id })));
+  }
 
   return (
     <div className="desk">
@@ -106,6 +120,13 @@ function Desk({ config }: { config: Config }) {
         {sentinelNote && <span className="note">{sentinelNote}</span>}
         {!feed.connected && <span className="note warn">Reconnecting to the gate…</span>}
       </header>
+      <nav className="pages" aria-label="Pages">
+        {pages.map((p) => (
+          <button key={p.id} aria-current={p.id === page ? 'page' : undefined} onClick={() => go(p.id)}>
+            {p.title}
+          </button>
+        ))}
+      </nav>
       <main>
         <AgStudio
           style={{ height: '100%', width: '100%' }}
@@ -116,6 +137,9 @@ function Desk({ config }: { config: Config }) {
           ai={ai as any}
           initialState={initialReport}
           mode={mode}
+          onApiReady={(e: any) => (api.current = e.api)}
+          onStudioReady={(e: any) => sync(e.api.getState())}
+          onStateUpdated={(e: any) => sync(e.state)}
         />
       </main>
     </div>
