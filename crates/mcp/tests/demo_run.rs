@@ -111,7 +111,7 @@ async fn the_demo_refuses_the_redirect_and_pays_the_vendor() {
         to_hub.record(r, n)
     });
     let demo = Demo {
-        scenario,
+        scenarios: vec![scenario],
         models: vec!["scripted/model".into()],
         openrouter_key: "unused".into(),
         agent_token: token.into(),

@@ -13,7 +13,7 @@
 //! | `PORT`                     | listen port (default 8787; Render sets this)      |
 //! | `PORTCULLIS_DRIVE_SECS`    | settlement poll interval (default 5)              |
 //! | `OPENROUTER_API_KEY`       | enables the demo agent on the console             |
-//! | `PORTCULLIS_SCENARIO`      | demo inbox (default `demo/scenario.json`)         |
+//! | `PORTCULLIS_SCENARIOS`     | demo inboxes, comma separated; first is default  |
 //! | `PORTCULLIS_DEMO_MODELS`   | models offered on the console, comma separated    |
 //! | `PORTCULLIS_DEMO_DAILY_RUNS` | demo runs allowed per UTC day (default 30)      |
 
@@ -113,16 +113,34 @@ fn serve() -> Result<(), String> {
     {
         None => None,
         Some(key) => {
-            let path = env_or("PORTCULLIS_SCENARIO", "demo/scenario.json");
-            let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
-            let scenario = portcullis_demo::scenario::Scenario::parse(&expand(&text)?)?;
+            let mut scenarios = Vec::new();
+            for path in env_or(
+                "PORTCULLIS_SCENARIOS",
+                "demo/scenario.json,demo/scenario-owner.json",
+            )
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            {
+                let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+                scenarios.push(portcullis_demo::scenario::Scenario::parse(&expand(&text)?)?);
+            }
+            if scenarios.is_empty() {
+                return Err("PORTCULLIS_SCENARIOS is empty".into());
+            }
+            if scenarios
+                .iter()
+                .any(|s| s.invoice_base != scenarios[0].invoice_base)
+            {
+                return Err("all scenarios must share one invoice_base".into());
+            }
             let token = random_token("pcx_demo_")?;
             tokens = tokens.with_token("lakeshore-ap", &token);
             if !hosts.iter().any(|h| h == "127.0.0.1") {
                 hosts.push("127.0.0.1".into());
             }
             Some(Demo {
-                scenario,
+                scenarios,
                 models: env_or("PORTCULLIS_DEMO_MODELS", DEFAULT_MODELS)
                     .split(',')
                     .map(|m| m.trim().to_string())

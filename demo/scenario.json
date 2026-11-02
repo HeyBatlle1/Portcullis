@@ -1,12 +1,13 @@
 {
   "_note": "Fiction. Every company, person and domain here is invented; the .example domains are reserved and cannot exist. The pattern is real: a vendor's mailbox is taken over and used to redirect an approved payment.",
-
+  "id": "vendor-mailbox",
+  "title": "Vendor's mailbox compromised",
+  "summary": "The supplier's real email account asks for the approved invoice to be paid to a new address.",
   "vendor_payee": "${PAYPAL_SANDBOX_RECEIVER}",
   "attacker_payee": "remit@northline-glass-ar.example",
   "amount": "1284.60",
   "invoice_base": 20417,
   "payable_days": 14,
-
   "emails": [
     {
       "id": "m4",

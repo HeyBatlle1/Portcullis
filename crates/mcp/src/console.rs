@@ -96,7 +96,8 @@ impl Hub {
 /// What the demo runner needs. Absent when no model key is configured; the
 /// console still works, it just cannot start a run.
 pub struct Demo {
-    pub scenario: Scenario,
+    /// The first is the default.
+    pub scenarios: Vec<Scenario>,
     pub models: Vec<String>,
     pub openrouter_key: String,
     pub agent_token: String,
@@ -221,6 +222,9 @@ impl<R: Rail + 'static> Console<R> {
             Some(d) => json!({
                 "enabled": true,
                 "models": d.models,
+                "scenarios": d.scenarios.iter().map(|s| json!({
+                    "id": s.id, "title": s.title, "summary": s.summary,
+                })).collect::<Vec<_>>(),
                 "busy": runs.busy,
                 "runs": runs.count,
                 "cooldown": RUN_COOLDOWN,
@@ -252,12 +256,25 @@ impl<R: Rail + 'static> Console<R> {
 
     /// Start one demo run. The owner approves this run's invoice (withdrawing
     /// the previous run's, if nobody paid it), then the agent works the inbox.
-    async fn start(self: &Arc<Self>, model: Option<String>) -> Result<Value, (StatusCode, String)> {
+    async fn start(
+        self: &Arc<Self>,
+        model: Option<String>,
+        scenario: Option<String>,
+    ) -> Result<Value, (StatusCode, String)> {
         let Some(demo) = &self.demo else {
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
                 "demo agent not configured".into(),
             ));
+        };
+        let scenario = match scenario {
+            None => &demo.scenarios[0],
+            Some(id) => demo.scenarios.iter().find(|s| s.id == id).ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("scenario {id:?} not offered"),
+                )
+            })?,
         };
         let model = match model {
             Some(m) if demo.models.contains(&m) => m,
@@ -294,7 +311,7 @@ impl<R: Rail + 'static> Console<R> {
             r.count
         };
 
-        if let Err(e) = self.approve(demo, run, now).await {
+        if let Err(e) = self.approve(demo, scenario, run, now).await {
             self.runs.lock().unwrap_or_else(|p| p.into_inner()).busy = false;
             return Err((StatusCode::INTERNAL_SERVER_ERROR, e));
         }
@@ -308,7 +325,7 @@ impl<R: Rail + 'static> Console<R> {
             model: model.clone(),
             model_url: demo.model_url.clone(),
         };
-        let inbox = demo.scenario.inbox(run);
+        let inbox = scenario.inbox(run);
         tokio::spawn(async move {
             let hub = me.hub.clone();
             let emit = move |e: AgentEvent| hub.agent(&e);
@@ -324,14 +341,23 @@ impl<R: Rail + 'static> Console<R> {
         });
         self.hub
             .send(json!({ "ch": "demo", "demo": self.demo_info() }));
-        Ok(json!({ "run": run, "model": model, "invoice": demo.scenario.invoice(run) }))
+        Ok(json!({
+            "run": run, "model": model, "scenario": scenario.id, "invoice": scenario.invoice(run),
+        }))
     }
 
     /// The human half of the scenario, recorded in the chain like everything else.
-    async fn approve(&self, demo: &Demo, run: u64, now: Timestamp) -> Result<(), String> {
-        let s = &demo.scenario;
+    async fn approve(
+        &self,
+        demo: &Demo,
+        s: &Scenario,
+        run: u64,
+        now: Timestamp,
+    ) -> Result<(), String> {
+        // Every scenario numbers invoices the same way, so the previous run's
+        // bill is found by number whichever scenario it came from.
         if run > 1 {
-            let prev = CommitmentId::new(s.invoice(run - 1));
+            let prev = CommitmentId::new(demo.scenarios[0].invoice(run - 1));
             if self.gate.withdraw(&prev).await {
                 (self.audit)(json!({
                     "kind": "approval",
@@ -375,6 +401,8 @@ impl<R: Rail + 'static> Console<R> {
 struct RunReq {
     #[serde(default)]
     model: Option<String>,
+    #[serde(default)]
+    scenario: Option<String>,
 }
 
 pub fn routes<R: Rail + 'static>(console: Arc<Console<R>>) -> Router {
@@ -433,7 +461,10 @@ async fn run<R: Rail + 'static>(
     State(c): State<Arc<Console<R>>>,
     body: Option<Json<RunReq>>,
 ) -> Response {
-    match c.start(body.and_then(|Json(b)| b.model)).await {
+    let (model, scenario) = body
+        .map(|Json(b)| (b.model, b.scenario))
+        .unwrap_or_default();
+    match c.start(model, scenario).await {
         Ok(v) => (StatusCode::ACCEPTED, Json(v)).into_response(),
         Err((code, msg)) => (code, Json(json!({ "error": msg }))).into_response(),
     }

@@ -15,6 +15,13 @@ use serde_json::{json, Value};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Scenario {
+    /// Short machine name, e.g. `vendor-mailbox`.
+    pub id: String,
+    /// What the console's picker shows.
+    pub title: String,
+    /// One sentence for the console.
+    #[serde(default)]
+    pub summary: String,
     /// The vendor of record's PayPal address. Standing recipient in the seed.
     pub vendor_payee: String,
     /// Where the compromised mailbox asks the money to go.
@@ -166,6 +173,13 @@ mod tests {
         Scenario::parse(include_str!("../../../demo/scenario.json")).unwrap()
     }
 
+    fn all() -> Vec<Scenario> {
+        vec![
+            s(),
+            Scenario::parse(include_str!("../../../demo/scenario-owner.json")).unwrap(),
+        ]
+    }
+
     #[test]
     fn each_run_pays_its_own_invoice() {
         let s = s();
@@ -177,15 +191,23 @@ mod tests {
     }
 
     #[test]
-    fn the_inbox_carries_the_attack_and_the_real_payee() {
-        let s = s();
-        let all: String = s
-            .inbox(1)
-            .iter()
-            .map(|e| format!("{} {}", e.from, e.body))
-            .collect();
-        assert!(all.contains(&s.attacker_payee));
-        assert!(all.contains(&s.vendor_payee));
+    fn every_inbox_carries_the_attack_and_the_real_payee() {
+        let all = all();
+        let mut ids: Vec<&str> = all.iter().map(|s| s.id.as_str()).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), all.len(), "scenario ids must differ");
+        for s in &all {
+            assert_eq!(s.invoice_base, all[0].invoice_base, "{}", s.id);
+            let text: String = s
+                .inbox(1)
+                .iter()
+                .map(|e| format!("{} {}", e.from, e.body))
+                .collect();
+            assert!(text.contains(&s.attacker_payee), "{}", s.id);
+            assert!(text.contains(&s.vendor_payee), "{}", s.id);
+            assert!(!text.contains("{{"), "{}: unfilled placeholder", s.id);
+        }
     }
 
     #[test]

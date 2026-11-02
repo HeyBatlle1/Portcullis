@@ -258,6 +258,8 @@ button, select { font: inherit; }
     </div>
     <p>An AI agent works a real-looking accounts-payable inbox. A deterministic gate, with no model inside it, decides what gets paid.</p>
     <div class="controls">
+      <label for="scenario">Scenario</label>
+      <select id="scenario"></select>
       <label for="model">Agent model</label>
       <select id="model"></select>
       <button class="run" id="run" disabled>Run the inbox</button>
@@ -537,7 +539,7 @@ function agentEvent(e, live) {
       setStatus("working", true);
       log.append(el("div", "run-start", `Run ${e.run}. Tools offered: ${e.tools.join(", ")}`));
       break;
-    case "said": log.append(el("div", "said", e.text)); break;
+    case "said": log.append(el("div", "said", plain(e.text))); break;
     case "tool_call":
       if (e.surface === "portcullis") {
         const s = el("div", "slip"); s.append(el("div", "tool", e.tool));
@@ -569,12 +571,14 @@ function agentEvent(e, live) {
       break;
     }
     case "viewing": showEmail(e.email); break;
-    case "to_owner": { const o = el("div", "owner"); o.append(el("strong", null, "Report to Dana"), document.createTextNode(e.text)); log.append(o); break; }
+    case "to_owner": { const o = el("div", "owner"); o.append(el("strong", null, "Report to Dana"), document.createTextNode(plain(e.text))); log.append(o); break; }
     case "finished": log.append(el("div", "done", `Finished after ${e.turns} model turns: ${e.reason}.`)); setStatus("finished"); $("eyeDot").className = ""; break;
     case "failed": log.append(el("div", "fail", `Run failed: ${e.error}`)); setStatus("failed"); $("eyeDot").className = ""; break;
   }
   if (atBottom || live) log.scrollTop = log.scrollHeight;
 }
+// Models write Markdown; this is a terminal. Drop the emphasis marks, keep the words.
+function plain(t) { return String(t).replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1"); }
 function setStatus(t, live) { const s = $("agentStatus"); s.textContent = t; s.className = "status" + (live ? " live" : ""); }
 function clearScreen() {
   $("screen").replaceChildren(el("div", "empty", "Nothing open yet."));
@@ -597,18 +601,19 @@ function showEmail(m) {
 let demo = { enabled: false };
 function renderDemo(d) {
   demo = d;
-  const sel = $("model"), btn = $("run");
-  if (!d.enabled) { btn.disabled = true; sel.disabled = true; $("notice").textContent = "The demo agent is not configured on this server."; return; }
+  const sel = $("model"), sc = $("scenario"), btn = $("run");
+  if (!d.enabled) { btn.disabled = sel.disabled = sc.disabled = true; $("notice").textContent = "The demo agent is not configured on this server."; return; }
   if (!sel.options.length) for (const m of d.models) sel.append(new Option(m, m));
-  btn.disabled = !!d.busy; sel.disabled = !!d.busy;
+  if (!sc.options.length) for (const x of d.scenarios || []) { const o = new Option(x.title, x.id); o.title = x.summary; sc.append(o); }
+  btn.disabled = sel.disabled = sc.disabled = !!d.busy;
   btn.textContent = d.busy ? "Agent is working" : "Run the inbox";
 }
 $("run").addEventListener("click", async () => {
   $("run").disabled = true; $("notice").textContent = "";
   try {
-    const r = await fetch("/console/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: $("model").value }) });
+    const r = await fetch("/console/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: $("model").value, scenario: $("scenario").value }) });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 202) $("notice").textContent = `Run ${j.run} started: Dana approved ${j.invoice}.`;
+    if (r.status === 202) $("notice").textContent = `Run ${j.run}: Dana approved ${j.invoice}. ${$("scenario").selectedOptions[0]?.title || ""}.`;
     else { $("notice").textContent = j.error || `Could not start (HTTP ${r.status}).`; renderDemo(demo); }
   } catch { $("notice").textContent = "Could not reach the server."; renderDemo(demo); }
 });
