@@ -124,6 +124,10 @@ export function buildAi(models: string[], onHarness: (h: AgAiHarness) => void): 
           sentinel,
         ],
         primary: 'auditor',
+        // ?debug on the URL logs every harness event to the browser console.
+        observers: new URLSearchParams(location.search).has('debug')
+          ? [{ onEvent: (e: unknown) => console.debug('[desk-ai]', JSON.stringify(e).slice(0, 2000)) }]
+          : undefined,
         promptStarters: STARTERS,
         models: models.length > 1 ? models.map((id) => ({ id, label: id.split('/').pop() ?? id })) : undefined,
       };
