@@ -176,9 +176,13 @@ fn serve() -> Result<(), String> {
             .ok()
             .map(|k| k.trim().to_string())
             .filter(|k| !k.is_empty()),
+        // OpenAI models by default: AG Studio's reference adapter speaks OpenAI's
+        // Responses API with strict tool schemas. Through OpenRouter's translation,
+        // Claude nested execute_query's arguments one level too deep on every call
+        // we tried; GPT-5.6 fills the same schema correctly.
         models: env_or(
             "PORTCULLIS_STUDIO_MODELS",
-            "anthropic/claude-sonnet-5.5,anthropic/claude-haiku-5.5",
+            "openai/gpt-5.6-terra,openai/gpt-5.6-luna",
         )
         .split(',')
         .map(|m| m.trim().to_string())
