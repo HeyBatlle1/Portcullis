@@ -15,7 +15,8 @@
 
 use crate::rail::{Observed, Rail, Step, Submitted};
 use portcullis_kernel::{
-    adjudicate, Adjudication, Ledger, NotExecutable, Policy, Proposal, ProposalId, Timestamp,
+    adjudicate, Adjudication, Commitment, CommitmentId, CommitmentState, Ledger, NotExecutable,
+    Policy, Proposal, ProposalId, Timestamp,
 };
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
@@ -140,6 +141,33 @@ impl<R: Rail> Gatehouse<R> {
     /// one will refuse to send on the next pass.
     pub async fn set_policy(&self, policy: Policy) {
         self.state.lock().await.policy = policy;
+    }
+
+    /// A human approved a scheduled payment. This is an operator path: nothing
+    /// on the agent's surface reaches it. Refuses an id already in use, open or
+    /// not, so an approval can never silently replace an earlier one.
+    pub async fn schedule(&self, c: Commitment) -> Result<(), String> {
+        let mut s = self.state.lock().await;
+        if s.ledger.commitment(&c.id).is_some() {
+            return Err(format!("commitment {:?} already exists", c.id));
+        }
+        s.ledger.commitments.push(c);
+        Ok(())
+    }
+
+    /// A human withdrew an approval that was never drawn on. Only an `Open`
+    /// commitment can be withdrawn: one that is `Drawing` has money in flight,
+    /// and pulling it would orphan that reservation. Returns whether anything
+    /// changed.
+    pub async fn withdraw(&self, id: &CommitmentId) -> bool {
+        let mut s = self.state.lock().await;
+        match s.ledger.commitments.iter_mut().find(|c| &c.id == id) {
+            Some(c) if c.state == CommitmentState::Open => {
+                c.state = CommitmentState::Expired;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// The rail, for inspection. Read-only.

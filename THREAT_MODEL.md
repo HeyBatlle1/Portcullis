@@ -56,6 +56,26 @@ are assigned by the server; an agent cannot choose one. Amounts are parsed as
 exact decimals — signs, exponents and extra precision are refused, never
 rounded.
 
+## The console, and the demo agent
+
+`/console` is outside the agent's surface: no agent token reaches it, and it
+has no route that proposes, approves, or changes policy. It streams what the
+chain already records. One route has an effect: `POST /console/run` plays the
+owner approving one invoice and then starts the demo agent. It is open to anyone
+who has the URL, so it is bounded instead of authenticated: one run at a time, a
+30-second cooldown, a daily cap, a five-minute wall clock, and a model key with
+a hard monthly spending limit.
+
+The approval it plays is an operator action (`Gatehouse::schedule`), recorded
+in the audit chain as `approval`. Like the seed, it is not signed. In a real
+deployment approvals would be amendments in the signed log; here they are the
+same unsigned operator path the seed is.
+
+The demo agent gets a token minted at boot that exists only in memory. It
+reaches the money through `/mcp` over loopback with that token, exactly as an
+outside agent would. `crates/demo` has no dependency on the kernel or the
+executor, so it cannot reach the ledger any other way.
+
 ## What the kernel guarantees
 
 `decide(&Ledger, &Policy, &Proposal, now) -> Decision` is a pure function. No I/O,
@@ -196,6 +216,8 @@ This is a hackathon build. Honest status:
   signed log.** The kernel's `PolicyLog` is built and tested, but there is no
   ed25519 `Verifier` and no durable log store yet, so the running server trusts
   its seed file — exactly the trust the signed log exists to remove.
+- Invoice approvals on the hosted demo are an unsigned operator path; see "The
+  console, and the demo agent".
 - Agent tokens identify an agent and grant only `propose`. They are bearer
   tokens: whoever holds one can propose as that agent. The server stores only
   their SHA-256.

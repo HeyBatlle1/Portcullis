@@ -1,27 +1,27 @@
 {
   "asset": { "symbol": "USD", "decimals": 2 },
-  "balance": 50000,
+  "balance": 1845000,
 
   "standing": [
-    { "recipient": "${PAYPAL_SANDBOX_RECEIVER}", "added": -604800, "active": -518400 }
+    { "recipient": "${PAYPAL_SANDBOX_RECEIVER}", "added": -7776000, "active": -7516800 }
   ],
 
   "rules": [
-    { "PerTransactionMax": { "minor": 5000 } },
-    { "RollingWindowMax": { "minor": 15000, "window": 86400 } },
+    { "PerTransactionMax": { "minor": 500000 } },
+    { "RollingWindowMax": { "minor": 1000000, "window": 86400 } },
     { "VelocityMax": { "count": 10, "window": 3600 } },
-    { "BalanceFloor": { "minor": 2000 } },
+    { "BalanceFloor": { "minor": 250000 } },
     { "AssetAllowlist": { "assets": [ { "symbol": "USD", "decimals": 2 } ] } }
   ],
 
   "commitments": [
     {
-      "id": "rent-nov",
-      "recipient": "${PAYPAL_SANDBOX_RECEIVER}",
-      "earmarked": 30000,
-      "opens": -3600,
-      "closes": 604800,
-      "memo": "November studio rent"
+      "id": "shop-rent-dec",
+      "recipient": "rent@harborpointproperties.example",
+      "earmarked": 320000,
+      "opens": 2160000,
+      "closes": 2592000,
+      "memo": "December shop rent - Harbor Point Properties"
     }
   ]
 }

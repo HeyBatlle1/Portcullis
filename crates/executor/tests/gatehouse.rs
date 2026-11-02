@@ -317,3 +317,53 @@ async fn an_unreadable_status_changes_nothing() {
     );
     assert_eq!(money(&g).await, (10_000, 4_200));
 }
+
+// ── operator approvals ──────────────────────────────────────────────────────
+
+fn invoice(id: &str, minor: u64) -> Commitment {
+    Commitment {
+        id: CommitmentId::new(id),
+        recipient: RecipientId::parse(VENDOR).unwrap(),
+        earmarked: minor,
+        window: TimeWindow::new(T0, T0 + 86_400),
+        state: CommitmentState::Open,
+        memo: String::new(),
+    }
+}
+
+#[tokio::test]
+async fn an_approval_cannot_replace_an_earlier_one() {
+    let g = gate(FakeRail::default());
+    g.schedule(invoice("INV-1", 1_000)).await.unwrap();
+    // Same id, bigger amount: refused, and the original is untouched.
+    assert!(g.schedule(invoice("INV-1", 9_000)).await.is_err());
+    let earmarked = g
+        .with_state(|s| {
+            s.ledger
+                .commitment(&CommitmentId::new("INV-1"))
+                .unwrap()
+                .earmarked
+        })
+        .await;
+    assert_eq!(earmarked, 1_000);
+}
+
+#[tokio::test]
+async fn only_an_undrawn_approval_can_be_withdrawn() {
+    let g = gate(FakeRail::default());
+    g.schedule(invoice("INV-1", 1_000)).await.unwrap();
+    g.schedule(invoice("INV-2", 2_000)).await.unwrap();
+    let mut p = proposal("p1", VENDOR, 2_000);
+    p.against = Some(CommitmentId::new("INV-2"));
+    assert!(g.propose(&p, T0).await.decision().is_allowed());
+
+    // INV-2 has money in flight: withdrawing it would orphan the reservation.
+    assert!(!g.withdraw(&CommitmentId::new("INV-2")).await);
+    // INV-1 was never drawn: it can go, and stops encumbering.
+    assert!(g.withdraw(&CommitmentId::new("INV-1")).await);
+    assert!(
+        !g.withdraw(&CommitmentId::new("INV-1")).await,
+        "twice is a no-op"
+    );
+    assert_eq!(g.with_state(|s| s.ledger.encumbered(T0)).await, 0);
+}

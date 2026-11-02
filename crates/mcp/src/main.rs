@@ -12,9 +12,18 @@
 //! | `PORTCULLIS_ALLOWED_HOSTS` | public hostnames, comma separated                 |
 //! | `PORT`                     | listen port (default 8787; Render sets this)      |
 //! | `PORTCULLIS_DRIVE_SECS`    | settlement poll interval (default 5)              |
+//! | `OPENROUTER_API_KEY`       | enables the demo agent on the console             |
+//! | `PORTCULLIS_SCENARIO`      | demo inbox (default `demo/scenario.json`)         |
+//! | `PORTCULLIS_DEMO_MODELS`   | models offered on the console, comma separated    |
+//! | `PORTCULLIS_DEMO_DAILY_RUNS` | demo runs allowed per UTC day (default 30)      |
 
 use portcullis_executor::{paypal::unix_now, Credentials, Endpoint, Gatehouse, PayPal};
-use portcullis_mcp::{app, seed::Seed, token_hash, AgentTokens, Portcullis};
+use portcullis_mcp::{
+    app,
+    console::{self, Console, Demo, Hub},
+    seed::{expand, Seed},
+    token_hash, AgentTokens, Portcullis,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -42,11 +51,7 @@ fn mint(agent: Option<&String>) -> Result<(), String> {
     {
         return Err("agent name: letters, digits, - and _ only".into());
     }
-    let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).map_err(|e| format!("randomness: {e}"))?;
-    let token: String = std::iter::once("pcx_".to_string())
-        .chain(bytes.iter().map(|b| format!("{b:02x}")))
-        .collect();
+    let token = random_token("pcx_")?;
     eprintln!("Give this token to the agent ONCE. It is not stored anywhere:");
     println!("{token}");
     eprintln!(
@@ -60,16 +65,34 @@ fn env_or(k: &str, d: &str) -> String {
     std::env::var(k).unwrap_or_else(|_| d.to_string())
 }
 
+/// Models offered on the console. Two vendors on purpose: the demo's claim is
+/// that the decision does not depend on which model is asking.
+const DEFAULT_MODELS: &str =
+    "anthropic/claude-sonnet-5.5,anthropic/claude-haiku-5.5,google/gemini-3.8-flash";
+
+fn random_token(prefix: &str) -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|e| format!("randomness: {e}"))?;
+    Ok(std::iter::once(prefix.to_string())
+        .chain(bytes.iter().map(|b| format!("{b:02x}")))
+        .collect())
+}
+
 fn serve() -> Result<(), String> {
     let creds = Credentials::from_env()?;
-    let tokens = AgentTokens::parse(&std::env::var("PORTCULLIS_AGENT_TOKENS").unwrap_or_default())?;
+    let configured = std::env::var("PORTCULLIS_AGENT_TOKENS").unwrap_or_default();
+    let mut tokens = if configured.trim().is_empty() {
+        AgentTokens::default()
+    } else {
+        AgentTokens::parse(&configured)?
+    };
     let seed_path = env_or("PORTCULLIS_SEED", "demo/seed.json");
     let seed = Seed::parse(
         &std::fs::read_to_string(&seed_path).map_err(|e| format!("{seed_path}: {e}"))?,
     )?;
     let boot = unix_now();
     let (ledger, policy) = seed.build(boot)?;
-    let hosts: Vec<String> = env_or("PORTCULLIS_ALLOWED_HOSTS", "localhost,127.0.0.1")
+    let mut hosts: Vec<String> = env_or("PORTCULLIS_ALLOWED_HOSTS", "localhost,127.0.0.1")
         .split(',')
         .map(|h| h.trim().to_string())
         .filter(|h| !h.is_empty())
@@ -81,18 +104,73 @@ fn serve() -> Result<(), String> {
         .parse()
         .map_err(|_| "bad PORTCULLIS_DRIVE_SECS")?;
 
-    let gate = Arc::new(Gatehouse::new(
-        ledger,
-        policy,
-        PayPal::new(Endpoint::sandbox(), creds),
-    ));
-    let chain: portcullis_mcp::SharedAudit = Default::default();
-    let audit = portcullis_mcp::chained_sink(chain.clone(), Arc::new(unix_now));
-    let server = Portcullis::new(gate.clone(), Arc::new(unix_now), audit.clone());
-    let router = app(server, tokens, hosts.clone());
+    // The demo agent: on only when a model key is present. It gets its own
+    // token, minted now, held only in memory, and goes through /mcp over
+    // loopback like any other agent.
+    let demo = match std::env::var("OPENROUTER_API_KEY")
+        .ok()
+        .filter(|k| !k.trim().is_empty())
+    {
+        None => None,
+        Some(key) => {
+            let path = env_or("PORTCULLIS_SCENARIO", "demo/scenario.json");
+            let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
+            let scenario = portcullis_demo::scenario::Scenario::parse(&expand(&text)?)?;
+            let token = random_token("pcx_demo_")?;
+            tokens = tokens.with_token("lakeshore-ap", &token);
+            if !hosts.iter().any(|h| h == "127.0.0.1") {
+                hosts.push("127.0.0.1".into());
+            }
+            Some(Demo {
+                scenario,
+                models: env_or("PORTCULLIS_DEMO_MODELS", DEFAULT_MODELS)
+                    .split(',')
+                    .map(|m| m.trim().to_string())
+                    .filter(|m| !m.is_empty())
+                    .collect(),
+                openrouter_key: key.trim().to_string(),
+                agent_token: token,
+                mcp_url: format!("http://127.0.0.1:{port}/mcp"),
+                // Overridable only so the console can be exercised against a
+                // scripted model locally; production leaves it unset.
+                model_url: env_or("PORTCULLIS_MODEL_URL", portcullis_demo::OPENROUTER),
+                daily_runs: env_or("PORTCULLIS_DEMO_DAILY_RUNS", "30")
+                    .parse()
+                    .map_err(|_| "bad PORTCULLIS_DEMO_DAILY_RUNS")?,
+            })
+        }
+    };
+    if demo.as_ref().is_some_and(|d| d.models.is_empty()) {
+        return Err("PORTCULLIS_DEMO_MODELS is empty".into());
+    }
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
+        let gate = Arc::new(Gatehouse::new(
+            ledger,
+            policy,
+            PayPal::new(Endpoint::sandbox(), creds),
+        ));
+        let chain: portcullis_mcp::SharedAudit = Default::default();
+        let hub = Hub::new();
+        let to_hub = hub.clone();
+        let audit = portcullis_mcp::chained_sink_with(
+            chain.clone(),
+            Arc::new(unix_now),
+            move |r, len| to_hub.record(r, len),
+        );
+        let demo_on = demo.is_some();
+        let console = Console::new(
+            gate.clone(),
+            chain,
+            hub,
+            Arc::new(unix_now),
+            audit.clone(),
+            demo,
+        );
+        let server = Portcullis::new(gate.clone(), Arc::new(unix_now), audit.clone());
+        let router = app(server, tokens, hosts.clone()).merge(console::routes(console));
+
         // The settlement loop. Decisions happen on request; money moves here.
         let driver = gate.clone();
         let log = audit.clone();
@@ -109,7 +187,10 @@ fn serve() -> Result<(), String> {
         let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
             .await
             .map_err(|e| format!("bind :{port}: {e}"))?;
-        eprintln!("portcullis: serving /mcp on :{port} for hosts {hosts:?} (sandbox)");
+        eprintln!(
+            "portcullis: serving /mcp and /console on :{port} for hosts {hosts:?} (sandbox; demo agent {})",
+            if demo_on { "on" } else { "off" }
+        );
         axum::serve(listener, router)
             .with_graceful_shutdown(async {
                 let _ = tokio::signal::ctrl_c().await;

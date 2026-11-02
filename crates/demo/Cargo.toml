@@ -1,0 +1,18 @@
+[package]
+name = "portcullis-demo"
+description = "The demo agent: an honest AP clerk that reaches Portcullis only through its MCP surface."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Read this list before trusting the demo. There is no portcullis-kernel and no
+# portcullis-executor here: this crate cannot see the ledger, the policy, or the
+# rail. Everything it does to money goes over HTTP to /mcp with a bearer token,
+# exactly as an outside agent would.
+[dependencies]
+rmcp = { version = "3.8.0", features = ["client", "transport-streamable-http-client-reqwest"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }

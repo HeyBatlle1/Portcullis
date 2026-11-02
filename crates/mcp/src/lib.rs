@@ -21,6 +21,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod console;
 pub mod money;
 pub mod seed;
 
@@ -64,14 +65,26 @@ pub type SharedAudit = Arc<std::sync::Mutex<portcullis_kernel::AuditChain>>;
 /// the resulting record as one JSON line, so the platform's log is a copy of
 /// the chain that can be verified independently of this process.
 pub fn chained_sink(chain: SharedAudit, clock: Clock) -> AuditSink {
+    chained_sink_with(chain, clock, |_, _| {})
+}
+
+/// [`chained_sink`], also handing each new record (and the chain's new length)
+/// to `then` — the console uses this to stream records as they are chained.
+/// `then` runs under the chain lock, so it sees records strictly in order.
+pub fn chained_sink_with(
+    chain: SharedAudit,
+    clock: Clock,
+    then: impl Fn(&portcullis_kernel::AuditRecord, usize) + Send + Sync + 'static,
+) -> AuditSink {
     Arc::new(move |event: serde_json::Value| {
         let kind = event["kind"].as_str().unwrap_or("event").to_string();
         let body = event.to_string();
         let mut c = chain
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let record = c.append(clock(), &kind, body);
-        println!("{}", serde_json::to_string(record).unwrap_or_default());
+        let record = c.append(clock(), &kind, body).clone();
+        println!("{}", serde_json::to_string(&record).unwrap_or_default());
+        then(&record, c.len());
     })
 }
 
@@ -105,6 +118,15 @@ impl AgentTokens {
             return Err("no agent tokens configured".into());
         }
         Ok(AgentTokens(Arc::new(m)))
+    }
+
+    /// The same set plus one more agent, given its raw token. Used for the
+    /// in-process demo agent, whose token is minted at boot and never leaves
+    /// memory.
+    pub fn with_token(&self, name: &str, token: &str) -> Self {
+        let mut m = (*self.0).clone();
+        m.insert(token_hash(token), AgentId::new(name));
+        AgentTokens(Arc::new(m))
     }
 
     pub fn identify(&self, token: &str) -> Option<&AgentId> {
@@ -259,6 +281,8 @@ that refused it; re-proposing the same thing will be refused the same way."
             "at": now,
             "proposal": &proposal,
             "adjudication": &adj,
+            // For whoever reads the log; derived from the rule, never consulted.
+            "reason": decision.refused_by().map(|r| r.reason()),
         }));
 
         let body = match &decision {
