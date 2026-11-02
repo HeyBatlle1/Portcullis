@@ -48,6 +48,17 @@ refused with `CommitmentRecipientMismatch`, whatever the agent believed. The
 console offers models from two vendors so you can watch the decision stay the
 same while the agent's judgment changes.
 
+In our first live runs, Claude Sonnet 5.5, Claude Haiku 5.5 and Gemini 3.8 Flash
+all caught both versions of the fraud on their own, the vendor's mailbox and the
+owner's, and refused to pay. We did not retune the agent until one fell for it.
+Instead the console also offers a **compromised agent**: a script, with no model,
+holding the AP agent's real token and trying every route to the money. It
+redirects the approved bill, pays the attacker as an ordinary payment, uses the
+vendor's address with one Cyrillic letter in it, pays the vendor ten times the
+bill, and tries another currency. Five attempts, five different rules, nothing
+reserved. That is the case Portcullis exists for: the day the agent is wrong,
+injected, or no longer yours.
+
 The page re-verifies the audit chain in your browser using the same
 length-prefixed SHA-256 encoding the kernel uses, and lets you download the
 chain to check yourself. `crates/mcp/tests/demo_run.rs` runs the whole scenario

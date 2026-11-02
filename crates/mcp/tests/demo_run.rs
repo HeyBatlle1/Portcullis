@@ -77,8 +77,14 @@ async fn model(State(s): State<Script>, Json(req): Json<Value>) -> Json<Value> {
     Json(json!({ "choices": [ { "message": m } ] }))
 }
 
-#[tokio::test]
-async fn the_demo_refuses_the_redirect_and_pays_the_vendor() {
+struct Booted {
+    addr: std::net::SocketAddr,
+    hub: Arc<Hub>,
+    chain: SharedAudit,
+    script: Script,
+}
+
+async fn boot() -> Booted {
     // The seed and scenario files are the real ones the hosted demo boots from.
     std::env::set_var("PAYPAL_SANDBOX_RECEIVER", VENDOR);
     let seed = Seed::parse(include_str!("../../../demo/seed.json")).unwrap();
@@ -131,17 +137,24 @@ async fn the_demo_refuses_the_redirect_and_pays_the_vendor() {
     let router = app(server, tokens, vec!["127.0.0.1".into()]).merge(console::routes(console));
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
 
-    // Start a run the way the page does, and follow the stream to the end.
-    let mut rx = hub.subscribe();
-    let http = reqwest::Client::new();
-    let r = http
-        .post(format!("http://{addr}/console/run"))
-        .json(&json!({}))
+    Booted {
+        addr,
+        hub,
+        chain,
+        script,
+    }
+}
+
+/// Start a run the way the page does, and follow the stream to the end.
+async fn run_once(b: &Booted, body: Value) -> Vec<Value> {
+    let mut rx = b.hub.subscribe();
+    let r = reqwest::Client::new()
+        .post(format!("http://{}/console/run", b.addr))
+        .json(&body)
         .send()
         .await
         .unwrap();
     assert_eq!(r.status(), 202, "{}", r.text().await.unwrap());
-
     let mut agent = Vec::new();
     let finished = tokio::time::timeout(Duration::from_secs(30), async {
         loop {
@@ -158,6 +171,14 @@ async fn the_demo_refuses_the_redirect_and_pays_the_vendor() {
     .await
     .expect("run did not finish");
     assert_eq!(finished, "finished", "{agent:#?}");
+    agent
+}
+
+#[tokio::test]
+async fn the_demo_refuses_the_redirect_and_pays_the_vendor() {
+    let b = boot().await;
+    let (script, chain) = (b.script.clone(), b.chain.clone());
+    let agent = run_once(&b, json!({})).await;
 
     // Offered exactly the server's four tools and the three inbox tools.
     let first = script.seen.lock().unwrap()[0].clone();
@@ -205,5 +226,39 @@ async fn the_demo_refuses_the_redirect_and_pays_the_vendor() {
     assert_eq!(
         refused["proposal"]["recipient"],
         "remit@northline-glass-ar.example"
+    );
+}
+
+/// The scripted compromised agent: same token, same surface, every attempt
+/// refused, each by a different rule, and not a cent reserved.
+#[tokio::test]
+async fn the_compromised_agent_is_refused_every_way_it_tries() {
+    let b = boot().await;
+    let agent = run_once(&b, json!({ "model": portcullis_demo::hostile::ID })).await;
+    let rules: Vec<String> = agent
+        .iter()
+        .filter(|e| e["type"] == "tool_result")
+        .map(|e| {
+            assert_eq!(e["result"]["decision"], "refused", "{e}");
+            e["result"]["rule"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert_eq!(
+        rules,
+        [
+            "CommitmentRecipientMismatch",
+            "RecipientNotAllowed",
+            "RecipientMalformed",
+            "ExceedsPerTransaction",
+            "AssetMismatch",
+        ]
+    );
+    // No model was involved.
+    assert!(b.script.seen.lock().unwrap().is_empty());
+    let c = b.chain.lock().unwrap();
+    c.verify().unwrap();
+    assert_eq!(
+        c.records().iter().filter(|r| r.kind == "decision").count(),
+        5
     );
 }

@@ -18,6 +18,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod hostile;
 pub mod scenario;
 
 use rmcp::{
@@ -117,7 +118,19 @@ pub struct Config {
     pub model_url: String,
 }
 
-type Mcp = RunningService<RoleClient, ClientConfig>;
+pub(crate) type Mcp = RunningService<RoleClient, ClientConfig>;
+
+/// An MCP session with Portcullis, authenticated as the demo agent.
+pub(crate) async fn connect(cfg: &Config) -> Result<Mcp, String> {
+    let transport = StreamableHttpClientTransport::from_config(
+        StreamableHttpClientTransportConfig::with_uri(cfg.mcp_url.clone())
+            .auth_header(cfg.agent_token.clone()),
+    );
+    ClientConfig::default()
+        .serve(transport)
+        .await
+        .map_err(|e| format!("connecting to Portcullis: {e}"))
+}
 
 /// Run the agent once, to completion. Every step is reported through `emit`.
 pub async fn run(cfg: Config, inbox: Vec<Email>, emit: impl Fn(AgentEvent)) {
@@ -133,14 +146,7 @@ async fn run_inner(
     emit: &impl Fn(AgentEvent),
 ) -> Result<(), String> {
     let run = cfg.run;
-    let transport = StreamableHttpClientTransport::from_config(
-        StreamableHttpClientTransportConfig::with_uri(cfg.mcp_url.clone())
-            .auth_header(cfg.agent_token.clone()),
-    );
-    let mcp: Mcp = ClientConfig::default()
-        .serve(transport)
-        .await
-        .map_err(|e| format!("connecting to Portcullis: {e}"))?;
+    let mcp = connect(&cfg).await?;
 
     let result = drive(&cfg, &mcp, &inbox, emit).await;
     let _ = mcp.cancel().await;
@@ -264,7 +270,7 @@ async fn drive(
     Ok((MAX_TURNS, "turn limit reached".into()))
 }
 
-async fn call_portcullis(mcp: &Mcp, name: &str, args: &Value) -> (bool, Value) {
+pub(crate) async fn call_portcullis(mcp: &Mcp, name: &str, args: &Value) -> (bool, Value) {
     let params = CallToolRequestParams::new(name.to_string())
         .with_arguments(args.as_object().cloned().unwrap_or_default());
     match mcp.call_tool(params).await {

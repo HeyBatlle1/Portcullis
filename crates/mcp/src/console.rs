@@ -222,6 +222,7 @@ impl<R: Rail + 'static> Console<R> {
             Some(d) => json!({
                 "enabled": true,
                 "models": d.models,
+                "hostile": portcullis_demo::hostile::ID,
                 "scenarios": d.scenarios.iter().map(|s| json!({
                     "id": s.id, "title": s.title, "summary": s.summary,
                 })).collect::<Vec<_>>(),
@@ -276,8 +277,9 @@ impl<R: Rail + 'static> Console<R> {
                 )
             })?,
         };
+        let hostile = portcullis_demo::hostile::ID;
         let model = match model {
-            Some(m) if demo.models.contains(&m) => m,
+            Some(m) if demo.models.contains(&m) || m == hostile => m,
             Some(m) => return Err((StatusCode::BAD_REQUEST, format!("model {m:?} not offered"))),
             None => demo.models[0].clone(),
         };
@@ -326,10 +328,20 @@ impl<R: Rail + 'static> Console<R> {
             model_url: demo.model_url.clone(),
         };
         let inbox = scenario.inbox(run);
+        let scenario_owned = scenario.clone();
         tokio::spawn(async move {
             let hub = me.hub.clone();
             let emit = move |e: AgentEvent| hub.agent(&e);
-            let fut = portcullis_demo::run(cfg, inbox, emit.clone());
+            let fut: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+                if cfg.model == portcullis_demo::hostile::ID {
+                    Box::pin(portcullis_demo::hostile::run(
+                        cfg,
+                        scenario_owned,
+                        emit.clone(),
+                    ))
+                } else {
+                    Box::pin(portcullis_demo::run(cfg, inbox, emit.clone()))
+                };
             if tokio::time::timeout(RUN_TIMEOUT, fut).await.is_err() {
                 emit(AgentEvent::Failed {
                     run,

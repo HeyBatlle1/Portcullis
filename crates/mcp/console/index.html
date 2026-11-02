@@ -60,7 +60,7 @@ button, select { font: inherit; }
 .mark { display: flex; align-items: center; gap: 10px; }
 .mark svg { width: 26px; height: 30px; }
 .mark b { font-size: 20px; font-weight: 700; letter-spacing: .01em; }
-.bar p { margin: 0; color: #b9c4dd; max-width: 46ch; }
+.bar p { margin: 0; color: #b9c4dd; max-width: 44ch; font-size: 13px; }
 .controls { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .controls label { color: #b9c4dd; }
 .controls select {
@@ -72,7 +72,8 @@ button, select { font: inherit; }
   padding: 8px 16px; font-weight: 700; cursor: pointer;
 }
 .run:disabled { background: #50607f; color: #c7cfe0; cursor: default; }
-.notice { color: #f5c98a; min-height: 1.4em; }
+.notice { color: #f5c98a; flex-basis: 100%; text-align: right; min-height: 1.4em; font-size: 13px; }
+.notice:empty { display: none; }
 
 /* ── the agent ────────────────────────────────────────────── */
 .agent {
@@ -256,11 +257,11 @@ button, select { font: inherit; }
       <svg viewBox="0 0 26 30" aria-hidden="true"><path d="M2 3h22M2 3v25M24 3v25M7 3v27M13 3v27M19 3v27M2 11h22M2 19h22" stroke="#e7eee9" stroke-width="2.2" fill="none" stroke-linecap="square"/><path d="M5 30l2-3 2 3M11 30l2-3 2 3M17 30l2-3 2 3" stroke="#e7eee9" stroke-width="1.6" fill="none"/></svg>
       <b>Portcullis</b>
     </div>
-    <p>An AI agent works a real-looking accounts-payable inbox. A deterministic gate, with no model inside it, decides what gets paid.</p>
+    <p>An AI agent works the accounts-payable inbox. A gate with no model inside it decides what gets paid.</p>
     <div class="controls">
       <label for="scenario">Scenario</label>
       <select id="scenario"></select>
-      <label for="model">Agent model</label>
+      <label for="model">Agent</label>
       <select id="model"></select>
       <button class="run" id="run" disabled>Run the inbox</button>
       <span class="notice" id="notice" role="status"></span>
@@ -269,7 +270,7 @@ button, select { font: inherit; }
 
   <section class="agent" aria-label="The agent">
     <header>
-      <h2>Lakeshore Glazing AP assistant</h2>
+      <h2 id="agentRole">Lakeshore Glazing AP assistant</h2>
       <span class="model" id="agentModel"></span>
       <span class="status" id="agentStatus">idle</span>
     </header>
@@ -507,6 +508,10 @@ function addDecision(r, animate) {
     const why = el("div", "why"); why.append(document.createTextNode("Agent's reason, which the gate does not read: "), el("q", null, p.purpose));
     card.append(why);
   }
+  const odd = [...p.recipient].filter((ch) => ch.charCodeAt(0) > 126 || ch.charCodeAt(0) < 33);
+  if (odd.length) card.append(el("div", "meta", "This address is not what it looks like: it contains " +
+    odd.map((ch) => `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}`).join(", ") +
+    ", which renders like a plain letter but is not one."));
   if (refused) card.append(el("div", "rule", `${b.reason || ""} (${d.Refuse.rule})`));
   else { const t = el("div", "track"); t.dataset.proposal = p.id; card.append(t); cards.set(p.id, t); }
   card.append(el("div", "stamp " + (refused ? "refused" : "allowed") + (animate ? " land" : ""), refused ? "Refused" : "Allowed"));
@@ -535,7 +540,9 @@ function agentEvent(e, live) {
       calls.clear();
       if (live) { log.replaceChildren(); clearScreen(); }
       runModel = e.model;
-      $("agentModel").textContent = e.model;
+      $("agentRole").textContent = e.model === demo.hostile ? "Compromised AP agent" : "Lakeshore Glazing AP assistant";
+      if (e.model === demo.hostile) $("screen").replaceChildren(el("div", "empty", "This agent reads no email. It is a script holding a stolen token."));
+      $("agentModel").textContent = modelName(e.model);
       setStatus("working", true);
       log.append(el("div", "run-start", `Run ${e.run}. Tools offered: ${e.tools.join(", ")}`));
       break;
@@ -572,7 +579,7 @@ function agentEvent(e, live) {
     }
     case "viewing": showEmail(e.email); break;
     case "to_owner": { const o = el("div", "owner"); o.append(el("strong", null, "Report to Dana"), document.createTextNode(plain(e.text))); log.append(o); break; }
-    case "finished": log.append(el("div", "done", `Finished after ${e.turns} model turns: ${e.reason}.`)); setStatus("finished"); $("eyeDot").className = ""; break;
+    case "finished": log.append(el("div", "done", `Finished after ${e.turns} ${e.model === demo.hostile || runModel === demo.hostile ? "attempts" : "model turns"}: ${e.reason}.`)); setStatus("finished"); $("eyeDot").className = ""; break;
     case "failed": log.append(el("div", "fail", `Run failed: ${e.error}`)); setStatus("failed"); $("eyeDot").className = ""; break;
   }
   if (atBottom || live) log.scrollTop = log.scrollHeight;
@@ -599,11 +606,16 @@ function showEmail(m) {
 
 /* ── controls ────────────────────────────────────────────────────────────── */
 let demo = { enabled: false };
+const HOSTILE_LABEL = "Compromised agent (scripted, no model)";
+const modelName = (m) => (m === demo.hostile ? HOSTILE_LABEL : m);
 function renderDemo(d) {
   demo = d;
   const sel = $("model"), sc = $("scenario"), btn = $("run");
   if (!d.enabled) { btn.disabled = sel.disabled = sc.disabled = true; $("notice").textContent = "The demo agent is not configured on this server."; return; }
-  if (!sel.options.length) for (const m of d.models) sel.append(new Option(m, m));
+  if (!sel.options.length) {
+    for (const m of d.models) sel.append(new Option(m, m));
+    if (d.hostile) sel.append(new Option(HOSTILE_LABEL, d.hostile));
+  }
   if (!sc.options.length) for (const x of d.scenarios || []) { const o = new Option(x.title, x.id); o.title = x.summary; sc.append(o); }
   btn.disabled = sel.disabled = sc.disabled = !!d.busy;
   btn.textContent = d.busy ? "Agent is working" : "Run the inbox";
@@ -613,7 +625,7 @@ $("run").addEventListener("click", async () => {
   try {
     const r = await fetch("/console/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: $("model").value, scenario: $("scenario").value }) });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 202) $("notice").textContent = `Run ${j.run}: Dana approved ${j.invoice}. ${$("scenario").selectedOptions[0]?.title || ""}.`;
+    if (r.status === 202) $("notice").textContent = `Run ${j.run}: Dana approved ${j.invoice}.`;
     else { $("notice").textContent = j.error || `Could not start (HTTP ${r.status}).`; renderDemo(demo); }
   } catch { $("notice").textContent = "Could not reach the server."; renderDemo(demo); }
 });
