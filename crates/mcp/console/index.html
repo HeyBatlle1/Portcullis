@@ -72,7 +72,7 @@ button, select { font: inherit; }
   padding: 8px 16px; font-weight: 700; cursor: pointer;
 }
 .run:disabled { background: #50607f; color: #c7cfe0; cursor: default; }
-.notice { color: #f5c98a; flex-basis: 100%; text-align: right; min-height: 1.4em; font-size: 13px; }
+.notice { color: var(--a-amber); flex-basis: 100%; }
 .notice:empty { display: none; }
 
 /* ── the agent ────────────────────────────────────────────── */
@@ -264,7 +264,6 @@ button, select { font: inherit; }
       <label for="model">Agent</label>
       <select id="model"></select>
       <button class="run" id="run" disabled>Run the inbox</button>
-      <span class="notice" id="notice" role="status"></span>
     </div>
   </section>
 
@@ -273,6 +272,7 @@ button, select { font: inherit; }
       <h2 id="agentRole">Lakeshore Glazing AP assistant</h2>
       <span class="model" id="agentModel"></span>
       <span class="status" id="agentStatus">idle</span>
+      <span class="notice" id="notice" role="status"></span>
     </header>
     <div class="eyes" aria-label="What the agent is reading">
       <div class="chrome"><i id="eyeDot"></i><span id="eyeTitle">What the agent is reading</span></div>
@@ -414,6 +414,7 @@ function makeGrid() {
   grid = agGrid.createGrid($("grid"), {
     theme,
     rowData: [],
+    animateRows: false,
     getRowId: (p) => String(p.data.seq),
     columnDefs: [
       { field: "seq", headerName: "#", width: 70, sort: "desc" },
