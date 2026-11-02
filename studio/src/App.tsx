@@ -73,14 +73,23 @@ function Desk({ config }: { config: Config }) {
       timer = setTimeout(async () => {
         const p = pending!;
         pending = null;
+        // Studio builds the harness when its chat panel first opens; give it a moment.
+        for (let i = 0; i < 20 && !harness.current; i++) await new Promise((r) => setTimeout(r, 250));
         const h = harness.current;
-        if (!h) return;
+        if (!h) {
+          setSentinelNote('The sentinel could not start: the agent panel is not open.');
+          return;
+        }
         setSentinelNote(`Sentinel is updating its page: ${p.n} new refusal${p.n > 1 ? 's' : ''}.`);
         go('alerts');
-        const session = await h.createThread({ agentId: 'sentinel', title: 'Sentinel: new refusals' });
-        session.sendMessage(
-          `${p.n} new refusal${p.n > 1 ? 's' : ''} just arrived (${[...p.rules].join(', ')}). Update the Sentinel page.`,
-        );
+        try {
+          const session = await h.createThread({ agentId: 'sentinel', title: 'Sentinel: new refusals' });
+          session.sendMessage(
+            `${p.n} new refusal${p.n > 1 ? 's' : ''} just arrived (${[...p.rules].join(', ')}). Update the Sentinel page.`,
+          );
+        } catch (e) {
+          setSentinelNote(`The sentinel could not start: ${String(e)}`);
+        }
       }, SETTLE_MS);
     });
     return () => {
@@ -108,7 +117,15 @@ function Desk({ config }: { config: Config }) {
         <div className="controls">
           {config.ai && (
             <label className="toggle">
-              <input type="checkbox" checked={watching} onChange={(e) => setWatching(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={watching}
+                onChange={(e) => {
+                  setWatching(e.target.checked);
+                  // The agents live in the edit-mode panel; open it so the sentinel can be seen working.
+                  if (e.target.checked) setMode('edit');
+                }}
+              />
               Sentinel watches for refusals
             </label>
           )}
