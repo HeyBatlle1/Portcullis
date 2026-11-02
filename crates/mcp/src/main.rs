@@ -16,6 +16,10 @@
 //! | `PORTCULLIS_SCENARIOS`     | demo inboxes, comma separated; first is default  |
 //! | `PORTCULLIS_DEMO_MODELS`   | models offered on the console, comma separated    |
 //! | `PORTCULLIS_DEMO_DAILY_RUNS` | demo runs allowed per UTC day (default 30)      |
+//! | `PORTCULLIS_STUDIO_DIR`    | built audit desk (default `crates/mcp/studio-dist`) |
+//! | `AG_STUDIO_LICENSE`        | AG Studio licence key (optional; watermark without) |
+//! | `PORTCULLIS_STUDIO_MODELS` | models the audit desk's agents may use            |
+//! | `PORTCULLIS_STUDIO_DAILY_CALLS` | audit-desk model calls per UTC day (default 400) |
 
 use portcullis_executor::{paypal::unix_now, Credentials, Endpoint, Gatehouse, PayPal};
 use portcullis_mcp::{
@@ -162,6 +166,31 @@ fn serve() -> Result<(), String> {
         return Err("PORTCULLIS_DEMO_MODELS is empty".into());
     }
 
+    let studio = Arc::new(portcullis_mcp::studio::Studio {
+        dir: env_or("PORTCULLIS_STUDIO_DIR", "crates/mcp/studio-dist").into(),
+        license_key: std::env::var("AG_STUDIO_LICENSE")
+            .ok()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty()),
+        openrouter_key: std::env::var("OPENROUTER_API_KEY")
+            .ok()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty()),
+        models: env_or(
+            "PORTCULLIS_STUDIO_MODELS",
+            "anthropic/claude-sonnet-5.5,anthropic/claude-haiku-5.5",
+        )
+        .split(',')
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .collect(),
+        daily_calls: env_or("PORTCULLIS_STUDIO_DAILY_CALLS", "400")
+            .parse()
+            .map_err(|_| "bad PORTCULLIS_STUDIO_DAILY_CALLS")?,
+        http: portcullis_mcp::studio::client(),
+        budget: Default::default(),
+    });
+
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
         let gate = Arc::new(Gatehouse::new(
@@ -187,7 +216,9 @@ fn serve() -> Result<(), String> {
             demo,
         );
         let server = Portcullis::new(gate.clone(), Arc::new(unix_now), audit.clone());
-        let router = app(server, tokens, hosts.clone()).merge(console::routes(console));
+        let router = app(server, tokens, hosts.clone())
+            .merge(console::routes(console))
+            .merge(portcullis_mcp::studio::routes(studio));
 
         // The settlement loop. Decisions happen on request; money moves here.
         let driver = gate.clone();

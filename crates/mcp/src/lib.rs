@@ -24,6 +24,7 @@
 pub mod console;
 pub mod money;
 pub mod seed;
+pub mod studio;
 
 use axum::{
     extract::{Request, State},
