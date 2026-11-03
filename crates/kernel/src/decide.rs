@@ -139,20 +139,25 @@ fn asset_allowed(policy: &Policy, proposal: &Proposal) -> Result<(), RuleId> {
 }
 
 /// Every way a named commitment can fail to back this proposal.
+///
+/// The payee is checked first. "This bill is not payable to that address" is
+/// true for the bill's whole life, so it is the refusal that says the most; a
+/// redirect that happens to arrive after the bill was paid is still a redirect,
+/// and should be named as one rather than as "already paid".
 fn check_commitment(
     c: &Commitment,
     to: &RecipientId,
     minor: u64,
     now: Timestamp,
 ) -> Result<(), RuleId> {
+    if &c.recipient != to {
+        return Err(RuleId::CommitmentRecipientMismatch);
+    }
     if !c.is_open() {
         return Err(RuleId::CommitmentNotOpen);
     }
     if !c.window.contains(now) {
         return Err(RuleId::CommitmentWindowClosed);
-    }
-    if &c.recipient != to {
-        return Err(RuleId::CommitmentRecipientMismatch);
     }
     if minor > c.earmarked {
         return Err(RuleId::CommitmentAmountExceeded);

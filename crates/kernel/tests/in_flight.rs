@@ -498,3 +498,23 @@ fn commitments_only_yields_to_an_earlier_rule() {
         Some(RuleId::CommitmentRequired)
     );
 }
+
+/// A redirect is named as a redirect even after the bill is paid: the payee is
+/// wrong for the bill's whole life, which says more than "already paid".
+#[test]
+fn a_redirect_after_payment_is_still_refused_as_the_wrong_payee() {
+    let mut l = Ledger::new(AssetId::usd(), 100_000);
+    l.commitments.push(invoice(12_846));
+    let p = policy(vec![Rule::CommitmentsOnly {}]);
+    assert!(adjudicate(&mut l, &p, &proposal("p1", VENDOR, 12_846), T0)
+        .decision()
+        .is_allowed());
+    let mut redirect = proposal("p2", "thief@example.net", 12_846);
+    redirect.against = Some(CommitmentId::new("INV-1"));
+    assert_eq!(
+        adjudicate(&mut l, &p, &redirect, T0)
+            .decision()
+            .refused_by(),
+        Some(RuleId::CommitmentRecipientMismatch)
+    );
+}
