@@ -76,6 +76,21 @@ reaches the money through `/mcp` over loopback with that token, exactly as an
 outside agent would. `crates/demo` has no dependency on the kernel or the
 executor, so it cannot reach the ledger any other way.
 
+## The audit desk
+
+`/audit` is a second read-only window. Its agents run in the browser on AG
+Studio's Agent Framework, and their tools are Studio's own (read the schema, run
+queries, arrange widgets) plus `verify_chain`. There is no tool that reaches
+`/mcp`, so a prompt-injected auditor can rearrange a dashboard and nothing else.
+What it reads is the audit chain, which includes text the payment agent wrote
+(`purpose`); treat that as untrusted input to these agents too.
+
+Their model calls go through `/audit/ai/responses`, which is open to anyone
+with the URL, like `/console/run`, and bounded the same way: the key stays on
+the server, only configured models are accepted, output per turn is capped, and
+calls count against a daily budget shared by every viewer. Someone can use up
+that budget; they cannot use the key for anything else.
+
 ## What the kernel guarantees
 
 `decide(&Ledger, &Policy, &Proposal, now) -> Decision` is a pure function. No I/O,

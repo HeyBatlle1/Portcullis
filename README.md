@@ -13,6 +13,22 @@ Funds are pushed in. Nothing can be pulled out by the agent, and no account is l
 for it to pull from. The blast radius of a compromised agent is the balance you put
 there — by construction, not by configuration.
 
+## Try it
+
+Hosted on the PayPal sandbox, free to use, no login:
+
+- **Console:** https://portcullis-br3k.onrender.com/console. Pick a scenario and an
+  agent and press **Run the inbox**. Pick *Compromised agent* to watch a script
+  holding the agent's real token try five ways to steal the bill, and be refused
+  by five different rules.
+- **Audit desk:** https://portcullis-br3k.onrender.com/audit. An AG Studio
+  dashboard over the hash-chained record. Press **Edit and ask the agents** and
+  ask the auditor what was refused and why, or switch on the sentinel and run the
+  compromised agent in another tab.
+
+Demo runs are capped (one at a time, a cooldown, a daily limit) because each one
+moves real sandbox money and calls a model.
+
 ## Why this is different
 
 Agent wallets today give the agent a key and attach limits to it. That defends against
@@ -31,6 +47,7 @@ it disposes.
 | `crates/executor` | turns adjudications into PayPal sandbox payouts; only a definitive answer from the rail releases money | the PayPal sandbox, and only the sandbox |
 | `crates/mcp` | the agent's entire surface: four tools over MCP Streamable HTTP; and, separately, the read-only console at `/console` | the network, behind per-agent tokens |
 | `crates/demo` | the demo agent: an accounts-payable clerk driven by a model on OpenRouter | `/mcp`, over HTTP, with its own token. It does not depend on the kernel or the executor |
+| `studio/` | the audit desk: AG Studio 3 over the audit chain, with custom widgets and agents (built into `crates/mcp/studio-dist`, served at `/audit`) | read-only: the chain, the gate's state, and a capped model proxy |
 
 ## The demo
 
@@ -63,6 +80,33 @@ The page re-verifies the audit chain in your browser using the same
 length-prefixed SHA-256 encoding the kernel uses, and lets you download the
 chain to check yourself. `crates/mcp/tests/demo_run.rs` runs the whole scenario
 offline, with a scripted model playing the agent that believes the email.
+
+## The audit desk
+
+`/audit` lays the audit chain out in AG Studio: decisions, PayPal payout steps
+and owner approvals as three tables, so Studio's filters, cross-filtering and
+charts work over the real record. The chain is re-verified in the browser before
+anything is shown.
+
+Three widgets are ours: **refusal stamps** (refusals per rule, through Studio's
+query engine so filters apply), a **chain seal** (did the chain verify here, and
+its head hash), and a **headroom meter** (the rolling spend limit and the balance
+floor, from the gate's live state).
+
+Two agents join Studio's five built-in ones on its Agent Framework. The
+**auditor** fronts the chat: it answers from queries, checks the chain with a
+custom `verify_chain` tool instead of assuming, and delegates building to
+Studio's agents. The **sentinel** keeps the Sentinel page: once switched on, the
+page starts it by itself when refusals arrive. Neither has any tool that reaches
+`/mcp`. The agents that explain the money have no path to it.
+
+Their model calls go through `/audit/ai/responses` on our server, which holds the
+key, allows only configured models, caps each turn and counts calls against a
+daily budget. They run on GPT-5.6 through OpenRouter: Studio's reference adapter
+speaks OpenAI's Responses API with strict tool schemas, and through that path
+Claude wrapped its query arguments one level too deep on every call we tried.
+
+To rebuild it: `cd studio && npm install && npm run build`.
 
 ## Running it
 
