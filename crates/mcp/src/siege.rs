@@ -44,6 +44,9 @@ const PAGE: &str = include_str!("../console/siege.html");
 
 /// Seconds between the end of one siege and the start of the next.
 pub const COOLDOWN: u64 = 45;
+
+/// See [`SiegeConfig::grace`].
+pub const GRACE: std::time::Duration = std::time::Duration::from_secs(60);
 /// Attacks one siege will accept. Enough to play; not enough to flood.
 pub const MAX_ATTACKS: usize = 12;
 /// Steps kept per slot for a page that opens mid-shift.
@@ -78,6 +81,9 @@ pub struct SiegeConfig {
     pub per_visitor: u32,
     /// How long a shift runs; `siege::SHIFT` in production, short in tests.
     pub shift: std::time::Duration,
+    /// How long past the shift a model may still be mid-turn before it is
+    /// stopped; [`GRACE`] in production.
+    pub grace: std::time::Duration,
 }
 
 #[derive(Default)]
@@ -297,13 +303,33 @@ impl<R: Rail + 'static> Siege<R> {
                 }));
             }
             // A hard stop a little after the shift, whatever a model is doing.
+            // Timing out only stops the waiting; a slow model's task would run
+            // on after the shift is recorded as ended, still calling the model
+            // and still able to propose. So the stragglers are cancelled, and
+            // say so on their tiles.
+            let stops: Vec<_> = tasks.iter().map(|t| t.abort_handle()).collect();
             let all = async {
                 for t in tasks {
                     let _ = t.await;
                 }
             };
-            let _ =
-                tokio::time::timeout(me.cfg.shift + std::time::Duration::from_secs(60), all).await;
+            if tokio::time::timeout(me.cfg.shift + me.cfg.grace, all)
+                .await
+                .is_err()
+            {
+                for (i, h) in stops.iter().enumerate() {
+                    if !h.is_finished() {
+                        h.abort();
+                        me.step(
+                            i,
+                            AgentEvent::Failed {
+                                run,
+                                error: "stopped: the shift ended while it was still working".into(),
+                            },
+                        );
+                    }
+                }
+            }
             room.close();
             let end = (me.clock)();
             {

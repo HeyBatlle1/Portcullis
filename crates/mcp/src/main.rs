@@ -255,6 +255,7 @@ fn serve() -> Result<(), String> {
                         .parse()
                         .unwrap_or(3),
                     shift: portcullis_demo::siege::SHIFT,
+                    grace: portcullis_mcp::siege::GRACE,
                 },
             )
         });

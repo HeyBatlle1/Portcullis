@@ -15,6 +15,8 @@
 //! * each slot proposes under its own identity, including one whose model
 //!   stopped at once and was reminded the shift was still running;
 //! * the start, the attack and the end are in a chain that verifies;
+//! * a model still mid-turn after the grace period is stopped, not left
+//!   running past the end of the shift;
 //! * one visitor cannot start a second shift past their daily allowance,
 //!   while another visitor still can.
 
@@ -88,6 +90,10 @@ async fn model(State(()): State<()>, Json(req): Json<Value>) -> Json<Value> {
     let msg = if n == 0 {
         json!({ "content": null, "tool_calls": [call("c0", "list_inbox", json!({}))] })
     } else if last.contains("shift_over") {
+        // Clerk 7 is a slow model: its last turn outlasts the grace period.
+        if req["model"] == "scripted/clerk-7" {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
         json!({ "content": "Shift over." })
     } else if !proposed(VENDOR) {
         json!({ "content": null, "tool_calls": [call("c1", "propose_payment", json!({
@@ -158,6 +164,7 @@ async fn eight_agents_one_bill_one_payment_and_the_attack_stopped_eight_times() 
             daily: 5,
             per_visitor: 1,
             shift: Duration::from_secs(4),
+            grace: Duration::from_secs(1),
         },
     );
     let console = Console::new(
@@ -254,6 +261,21 @@ async fn eight_agents_one_bill_one_payment_and_the_attack_stopped_eight_times() 
             .collect();
         assert_eq!(siege_actions, ["started", "attack", "ended"]);
     }
+
+    // The slow clerk was stopped at the hard stop, not left running past the
+    // end of the shift; the others finished on their own.
+    let st: Value = http
+        .get(format!("http://{addr}/siege/state"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let last = |i: usize| st["logs"][i].as_array().unwrap().last().cloned().unwrap();
+    assert_eq!(last(6)["type"], "failed", "{}", last(6));
+    assert!(last(6)["error"].as_str().unwrap().contains("shift ended"));
+    assert_eq!(last(0)["type"], "finished");
 
     // Past the cooldown, the same visitor has used their one shift for the
     // day; someone else has not.
