@@ -63,8 +63,9 @@ has no route that proposes, approves, or changes policy. It streams what the
 chain already records. One route has an effect: `POST /console/run` plays the
 owner approving one invoice and then starts the demo agent. It is open to anyone
 who has the URL, so it is bounded instead of authenticated: one run at a time, a
-30-second cooldown, a daily cap, a five-minute wall clock, and a model key with
-a hard monthly spending limit.
+30-second cooldown, a daily cap, a few runs per visitor per day (see
+*Per-visitor limits* below), a five-minute wall clock, and a model key with a
+hard monthly spending limit.
 
 The approval it plays is an operator action (`Gatehouse::schedule`), recorded
 in the audit chain as `approval`. Like the seed, it is not signed. In a real
@@ -75,6 +76,49 @@ The demo agent gets a token minted at boot that exists only in memory. It
 reaches the money through `/mcp` over loopback with that token, exactly as an
 outside agent would. `crates/demo` has no dependency on the kernel or the
 executor, so it cannot reach the ledger any other way.
+
+## The siege
+
+`/siege` runs eight demo agents at once. Each slot has its own token, minted at
+boot and held only in memory, and reaches the money through `/mcp` over
+loopback like the console's agent; one slot can instead hold the scripted
+compromised agent. `POST /siege/start` plays the owner approving one bill and
+starts the shift; `POST /siege/attack` delivers an email to the shared inbox.
+Both are open to anyone with the URL, and bounded: one shift at a time, a
+two-and-a-half-minute shift with a hard stop, a cooldown, a daily cap, a cap on
+attacks per shift, and a few shifts per visitor per day.
+
+An attack is chosen from fixed templates, or built from fixed lists plus a
+payee and an amount that are validated first. No visitor text reaches the
+agents or the other viewers, so the page cannot be used to put words in front
+of eight models or broadcast a message.
+
+The harness speaks to an agent in one case: an agent that stops calling tools
+while the shift is still running is told once that the shift is running and to
+call `wait_for_mail`. The text repeats the brief and says nothing about what to
+pay or trust. It is shown on the page as the harness, so nobody reads it as the
+model's own judgment.
+
+### Per-visitor limits
+
+The site-wide daily caps are what bound the model bill. The per-visitor limits
+stop one person spending the day's caps in ten minutes. A visitor is the
+address in `CF-Connecting-IP`, which Cloudflare sets in front of Render and
+overwrites if the client sends it. `X-Forwarded-For` is not used, because
+Render appends to it rather than replacing it, so its first entry is whatever
+the client chose. `True-Client-IP` is not used either: Cloudflare only sets it
+when a zone turns it on, and otherwise passes the client's value through.
+
+This is a speed bump. An office shares one address, a phone changes address,
+and someone with many addresses gets many allowances. If the header is ever
+missing, visitors are not counted at all and only the site-wide caps apply.
+That is deliberate: the other choice, one shared allowance, would quietly turn
+the demo off for everyone after a few uses.
+
+The assumption that Cloudflare sets this header on Render rests on Render's
+current setup, observed from outside, not on a documented guarantee. Once
+deployed we check that the header arrives; if Render changes its edge, the
+fallback above is what happens.
 
 ## The audit desk
 

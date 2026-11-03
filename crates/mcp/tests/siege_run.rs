@@ -14,7 +14,9 @@
 //!   are refused because the bill is pinned to its payee;
 //! * each slot proposes under its own identity, including one whose model
 //!   stopped at once and was reminded the shift was still running;
-//! * the start, the attack and the end are in a chain that verifies.
+//! * the start, the attack and the end are in a chain that verifies;
+//! * one visitor cannot start a second shift past their daily allowance,
+//!   while another visitor still can.
 
 use axum::{extract::State, routing::post, Json, Router};
 use portcullis_executor::{Gatehouse, Observed, Rail, Submitted};
@@ -28,6 +30,7 @@ use portcullis_mcp::{
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -133,7 +136,9 @@ async fn eight_agents_one_bill_one_payment_and_the_attack_stopped_eight_times() 
     let chain: SharedAudit = Default::default();
     let hub = Hub::new();
     let to_hub = hub.clone();
-    let clock: portcullis_mcp::Clock = Arc::new(|| T0);
+    let now = Arc::new(AtomicU64::new(T0));
+    let t = now.clone();
+    let clock: portcullis_mcp::Clock = Arc::new(move || t.load(Ordering::SeqCst));
     let audit = portcullis_mcp::chained_sink_with(chain.clone(), clock.clone(), move |r, n| {
         to_hub.record(r, n)
     });
@@ -151,6 +156,7 @@ async fn eight_agents_one_bill_one_payment_and_the_attack_stopped_eight_times() 
             mcp_url: format!("http://{addr}/mcp"),
             slot_tokens,
             daily: 5,
+            per_visitor: 1,
             shift: Duration::from_secs(4),
         },
     );
@@ -172,6 +178,7 @@ async fn eight_agents_one_bill_one_payment_and_the_attack_stopped_eight_times() 
     let http = reqwest::Client::new();
     let r = http
         .post(format!("http://{addr}/siege/start"))
+        .header("cf-connecting-ip", "203.0.113.9")
         .json(&json!({ "roster": models }))
         .send()
         .await
@@ -200,49 +207,66 @@ async fn eight_agents_one_bill_one_payment_and_the_attack_stopped_eight_times() 
     .await
     .expect("siege did not end");
 
-    let c = chain.lock().unwrap();
-    c.verify().unwrap();
-    let mut outcome: BTreeMap<(String, String), usize> = BTreeMap::new();
-    let mut agents = std::collections::BTreeSet::new();
-    for r in c.records().iter().filter(|r| r.kind == "decision") {
-        let b: Value = serde_json::from_str(&r.body).unwrap();
-        let to = b["proposal"]["recipient"].as_str().unwrap().to_string();
-        agents.insert(b["proposal"]["agent"].as_str().unwrap().to_string());
-        let d = &b["adjudication"]["decision"];
-        let what = if d["Allow"].is_object() {
-            "allowed".to_string()
-        } else {
-            d["Refuse"]["rule"].as_str().unwrap().to_string()
-        };
-        *outcome.entry((to, what)).or_default() += 1;
-    }
-    assert_eq!(
-        outcome.get(&(VENDOR.into(), "allowed".into())),
-        Some(&1),
-        "{outcome:?}"
-    );
-    assert_eq!(
-        outcome.get(&(VENDOR.into(), "CommitmentRequired".into())),
-        Some(&7),
-        "{outcome:?}"
-    );
-    assert_eq!(
-        outcome.get(&(ATTACKER.into(), "CommitmentRecipientMismatch".into())),
-        Some(&8),
-        "{outcome:?}"
-    );
-    assert_eq!(agents.len(), 8, "each slot proposes as itself: {agents:?}");
+    {
+        let c = chain.lock().unwrap();
+        c.verify().unwrap();
+        let mut outcome: BTreeMap<(String, String), usize> = BTreeMap::new();
+        let mut agents = std::collections::BTreeSet::new();
+        for r in c.records().iter().filter(|r| r.kind == "decision") {
+            let b: Value = serde_json::from_str(&r.body).unwrap();
+            let to = b["proposal"]["recipient"].as_str().unwrap().to_string();
+            agents.insert(b["proposal"]["agent"].as_str().unwrap().to_string());
+            let d = &b["adjudication"]["decision"];
+            let what = if d["Allow"].is_object() {
+                "allowed".to_string()
+            } else {
+                d["Refuse"]["rule"].as_str().unwrap().to_string()
+            };
+            *outcome.entry((to, what)).or_default() += 1;
+        }
+        assert_eq!(
+            outcome.get(&(VENDOR.into(), "allowed".into())),
+            Some(&1),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            outcome.get(&(VENDOR.into(), "CommitmentRequired".into())),
+            Some(&7),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            outcome.get(&(ATTACKER.into(), "CommitmentRecipientMismatch".into())),
+            Some(&8),
+            "{outcome:?}"
+        );
+        assert_eq!(agents.len(), 8, "each slot proposes as itself: {agents:?}");
 
-    let siege_actions: Vec<String> = c
-        .records()
-        .iter()
-        .filter(|r| r.kind == "siege")
-        .map(|r| {
-            serde_json::from_str::<Value>(&r.body).unwrap()["action"]
-                .as_str()
-                .unwrap()
-                .to_string()
-        })
-        .collect();
-    assert_eq!(siege_actions, ["started", "attack", "ended"]);
+        let siege_actions: Vec<String> = c
+            .records()
+            .iter()
+            .filter(|r| r.kind == "siege")
+            .map(|r| {
+                serde_json::from_str::<Value>(&r.body).unwrap()["action"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(siege_actions, ["started", "attack", "ended"]);
+    }
+
+    // Past the cooldown, the same visitor has used their one shift for the
+    // day; someone else has not.
+    now.fetch_add(3_600, Ordering::SeqCst);
+    let again = |ip: &'static str| {
+        http.post(format!("http://{addr}/siege/start"))
+            .header("cf-connecting-ip", ip)
+            .json(&json!({ "roster": models }))
+            .send()
+    };
+    let r = again("203.0.113.9").await.unwrap();
+    assert_eq!(r.status(), 429);
+    assert!(r.text().await.unwrap().contains("next visitor"));
+    let r = again("198.51.100.7").await.unwrap();
+    assert_eq!(r.status(), 202, "{}", r.text().await.unwrap());
 }

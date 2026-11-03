@@ -21,6 +21,7 @@ use portcullis_mcp::{
     AgentTokens, Portcullis, SharedAudit,
 };
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -82,6 +83,7 @@ struct Booted {
     hub: Arc<Hub>,
     chain: SharedAudit,
     script: Script,
+    now: Arc<AtomicU64>,
 }
 
 async fn boot() -> Booted {
@@ -112,7 +114,9 @@ async fn boot() -> Booted {
     let chain: SharedAudit = Default::default();
     let hub = Hub::new();
     let to_hub = hub.clone();
-    let clock: portcullis_mcp::Clock = Arc::new(|| T0);
+    let now = Arc::new(AtomicU64::new(T0));
+    let t = now.clone();
+    let clock: portcullis_mcp::Clock = Arc::new(move || t.load(Ordering::SeqCst));
     let audit = portcullis_mcp::chained_sink_with(chain.clone(), clock.clone(), move |r, n| {
         to_hub.record(r, n)
     });
@@ -123,6 +127,7 @@ async fn boot() -> Booted {
         agent_token: token.into(),
         mcp_url: format!("http://{addr}/mcp"),
         daily_runs: 5,
+        per_visitor: 1,
         model_url,
     };
     let console = Console::new(
@@ -142,18 +147,28 @@ async fn boot() -> Booted {
         hub,
         chain,
         script,
+        now,
     }
 }
 
 /// Start a run the way the page does, and follow the stream to the end.
 async fn run_once(b: &Booted, body: Value) -> Vec<Value> {
-    let mut rx = b.hub.subscribe();
-    let r = reqwest::Client::new()
+    run_from(b, None, body).await
+}
+
+async fn post_run(b: &Booted, ip: Option<&str>, body: &Value) -> reqwest::Response {
+    let mut req = reqwest::Client::new()
         .post(format!("http://{}/console/run", b.addr))
-        .json(&body)
-        .send()
-        .await
-        .unwrap();
+        .json(body);
+    if let Some(ip) = ip {
+        req = req.header("cf-connecting-ip", ip);
+    }
+    req.send().await.unwrap()
+}
+
+async fn run_from(b: &Booted, ip: Option<&str>, body: Value) -> Vec<Value> {
+    let mut rx = b.hub.subscribe();
+    let r = post_run(b, ip, &body).await;
     assert_eq!(r.status(), 202, "{}", r.text().await.unwrap());
     let mut agent = Vec::new();
     let finished = tokio::time::timeout(Duration::from_secs(30), async {
@@ -261,4 +276,25 @@ async fn the_compromised_agent_is_refused_every_way_it_tries() {
         c.records().iter().filter(|r| r.kind == "decision").count(),
         5
     );
+}
+
+#[tokio::test]
+async fn one_visitor_gets_their_allowance_and_no_more() {
+    let b = boot().await;
+    let hostile = json!({ "model": portcullis_demo::hostile::ID });
+    run_from(&b, Some("203.0.113.9"), hostile.clone()).await;
+
+    // Past the cooldown, and once the run has let go of the console.
+    b.now.fetch_add(3_600, Ordering::SeqCst);
+    let mut r = post_run(&b, Some("203.0.113.9"), &hostile).await;
+    for _ in 0..40 {
+        if r.status() != 409 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        r = post_run(&b, Some("203.0.113.9"), &hostile).await;
+    }
+    assert_eq!(r.status(), 429);
+    assert!(r.text().await.unwrap().contains("next visitor"));
+    run_from(&b, Some("198.51.100.7"), hostile).await;
 }

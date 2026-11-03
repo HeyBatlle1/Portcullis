@@ -103,6 +103,8 @@ pub struct Demo {
     pub agent_token: String,
     pub mcp_url: String,
     pub daily_runs: u32,
+    /// Runs one visitor may start per UTC day; see [`crate::visitor`].
+    pub per_visitor: u32,
     /// Chat-completions endpoint; `portcullis_demo::OPENROUTER` in production.
     pub model_url: String,
 }
@@ -124,6 +126,7 @@ pub struct Console<R: Rail + 'static> {
     audit: crate::AuditSink,
     demo: Option<Demo>,
     runs: Mutex<Runs>,
+    visitors: crate::visitor::Quota,
 }
 
 impl<R: Rail + 'static> Console<R> {
@@ -141,6 +144,7 @@ impl<R: Rail + 'static> Console<R> {
             hub,
             clock,
             audit,
+            visitors: crate::visitor::Quota::new(demo.as_ref().map_or(0, |d| d.per_visitor)),
             demo,
             runs: Mutex::new(Runs::default()),
         });
@@ -259,6 +263,7 @@ impl<R: Rail + 'static> Console<R> {
     /// the previous run's, if nobody paid it), then the agent works the inbox.
     async fn start(
         self: &Arc<Self>,
+        who: Option<&str>,
         model: Option<String>,
         scenario: Option<String>,
     ) -> Result<Value, (StatusCode, String)> {
@@ -304,6 +309,16 @@ impl<R: Rail + 'static> Console<R> {
                 return Err((
                     StatusCode::TOO_MANY_REQUESTS,
                     "daily demo limit reached".into(),
+                ));
+            }
+            // Last, so a start refused for any other reason costs nothing.
+            if !self.visitors.take(who, now) {
+                return Err((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!(
+                        "you have started {} runs today; leave some for the next visitor",
+                        self.visitors.per_day()
+                    ),
                 ));
             }
             r.busy = true;
@@ -471,12 +486,14 @@ async fn export<R: Rail + 'static>(State(c): State<Arc<Console<R>>>) -> Response
 
 async fn run<R: Rail + 'static>(
     State(c): State<Arc<Console<R>>>,
+    headers: axum::http::HeaderMap,
     body: Option<Json<RunReq>>,
 ) -> Response {
     let (model, scenario) = body
         .map(|Json(b)| (b.model, b.scenario))
         .unwrap_or_default();
-    match c.start(model, scenario).await {
+    let who = crate::visitor::client(&headers);
+    match c.start(who.as_deref(), model, scenario).await {
         Ok(v) => (StatusCode::ACCEPTED, Json(v)).into_response(),
         Err((code, msg)) => (code, Json(json!({ "error": msg }))).into_response(),
     }

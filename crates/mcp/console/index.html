@@ -73,6 +73,7 @@ button, select { font: inherit; }
 }
 .run:disabled { background: #50607f; color: #c7cfe0; cursor: default; }
 .notice { color: var(--a-amber); flex-basis: 100%; }
+.controls a.siege { color: #f0c36a; font-weight: 600; white-space: nowrap; }
 .notice:empty { display: none; }
 
 /* ── the agent ────────────────────────────────────────────── */
@@ -264,6 +265,7 @@ button, select { font: inherit; }
       <label for="model">Agent</label>
       <select id="model"></select>
       <button class="run" id="run" disabled>Run the inbox</button>
+      <a class="siege" href="/siege">Eight agents at once: Siege</a>
     </div>
   </section>
 

@@ -26,6 +26,7 @@ pub mod money;
 pub mod seed;
 pub mod siege;
 pub mod studio;
+pub mod visitor;
 
 use axum::{
     extract::{Request, State},

@@ -16,8 +16,10 @@
 //! | `PORTCULLIS_SCENARIOS`     | demo inboxes, comma separated; first is default  |
 //! | `PORTCULLIS_DEMO_MODELS`   | models offered on the console, comma separated    |
 //! | `PORTCULLIS_DEMO_DAILY_RUNS` | demo runs allowed per UTC day (default 30)      |
+//! | `PORTCULLIS_DEMO_PER_VISITOR` | demo runs one visitor may start per day (default 5) |
 //! | `PORTCULLIS_SIEGE_MODELS` | models a siege slot may hold                    |
 //! | `PORTCULLIS_SIEGE_DAILY`   | sieges allowed per UTC day (default 15)          |
+//! | `PORTCULLIS_SIEGE_PER_VISITOR` | sieges one visitor may start per day (default 3) |
 //! | `PORTCULLIS_STUDIO_DIR`    | built audit desk (default `crates/mcp/studio-dist`) |
 //! | `AG_STUDIO_LICENSE`        | AG Studio licence key (optional; watermark without) |
 //! | `PORTCULLIS_STUDIO_MODELS` | models the audit desk's agents may use            |
@@ -175,6 +177,9 @@ fn serve() -> Result<(), String> {
                 daily_runs: env_or("PORTCULLIS_DEMO_DAILY_RUNS", "30")
                     .parse()
                     .map_err(|_| "bad PORTCULLIS_DEMO_DAILY_RUNS")?,
+                per_visitor: env_or("PORTCULLIS_DEMO_PER_VISITOR", "5")
+                    .parse()
+                    .map_err(|_| "bad PORTCULLIS_DEMO_PER_VISITOR")?,
             })
         }
     };
@@ -246,6 +251,9 @@ fn serve() -> Result<(), String> {
                     mcp_url: d.mcp_url.clone(),
                     slot_tokens: slot_tokens.clone(),
                     daily: env_or("PORTCULLIS_SIEGE_DAILY", "15").parse().unwrap_or(15),
+                    per_visitor: env_or("PORTCULLIS_SIEGE_PER_VISITOR", "3")
+                        .parse()
+                        .unwrap_or(3),
                     shift: portcullis_demo::siege::SHIFT,
                 },
             )

@@ -21,7 +21,7 @@
 use crate::{console::Hub, money::parse_amount, AuditSink, Clock};
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -74,6 +74,8 @@ pub struct SiegeConfig {
     /// One token per slot, minted at boot; slot i proposes as `siege-{i+1}`.
     pub slot_tokens: Vec<String>,
     pub daily: u32,
+    /// Shifts one visitor may start per UTC day; see [`crate::visitor`].
+    pub per_visitor: u32,
     /// How long a shift runs; `siege::SHIFT` in production, short in tests.
     pub shift: std::time::Duration,
 }
@@ -100,6 +102,7 @@ pub struct Siege<R: Rail + 'static> {
     clock: Clock,
     cfg: SiegeConfig,
     shift: Mutex<Shift>,
+    visitors: crate::visitor::Quota,
 }
 
 fn err(code: StatusCode, msg: impl Into<String>) -> (StatusCode, String) {
@@ -119,6 +122,7 @@ impl<R: Rail + 'static> Siege<R> {
             hub,
             audit,
             clock,
+            visitors: crate::visitor::Quota::new(cfg.per_visitor),
             cfg,
             shift: Mutex::new(Shift::default()),
         })
@@ -164,6 +168,7 @@ impl<R: Rail + 'static> Siege<R> {
 
     async fn start(
         self: &Arc<Self>,
+        who: Option<&str>,
         roster: Option<Vec<String>>,
     ) -> Result<Value, (StatusCode, String)> {
         let roster =
@@ -204,6 +209,16 @@ impl<R: Rail + 'static> Siege<R> {
                 return Err(err(
                     StatusCode::TOO_MANY_REQUESTS,
                     "today's sieges are used up",
+                ));
+            }
+            // Last, so a start refused for any other reason costs nothing.
+            if !self.visitors.take(who, now) {
+                return Err(err(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!(
+                        "you have started {} shifts today; leave some for the next visitor",
+                        self.visitors.per_day()
+                    ),
                 ));
             }
             s.today += 1;
@@ -416,9 +431,14 @@ async fn state<R: Rail + 'static>(State(s): State<Arc<Siege<R>>>) -> Json<Value>
 
 async fn start<R: Rail + 'static>(
     State(s): State<Arc<Siege<R>>>,
+    headers: HeaderMap,
     body: Option<Json<StartReq>>,
 ) -> Response {
-    match s.start(body.and_then(|Json(b)| b.roster)).await {
+    let who = crate::visitor::client(&headers);
+    match s
+        .start(who.as_deref(), body.and_then(|Json(b)| b.roster))
+        .await
+    {
         Ok(v) => (StatusCode::ACCEPTED, Json(v)).into_response(),
         Err((c, m)) => (c, Json(json!({ "error": m }))).into_response(),
     }
