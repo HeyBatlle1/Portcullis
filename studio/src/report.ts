@@ -112,8 +112,15 @@ export const initialReport: AgReportState<any> = {
             },
           },
         },
+        // Placed and wired here because Studio's agents cannot configure a custom widget's
+        // data mapping; the sentinel is told to leave it alone and build around it.
+        stamps: {
+          type: 'refusal-stamps',
+          dataMapping: { rule: [{ id: 'decisions.rule' }], count: [sum('decisions.refused')] },
+          format: title('Refused, by rule'),
+        },
       },
-      widgetLayout: { note: at(0, 0, 24, 4) },
+      widgetLayout: { note: at(0, 0, 24, 4), stamps: at(0, 4, 24, 12) },
     },
   ],
   selectedPageId: 'desk',

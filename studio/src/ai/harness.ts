@@ -43,9 +43,9 @@ Be exact, brief and unexcited. ${DOMAIN}`;
 const SENTINEL = `You are the sentinel. You keep the page titled "Sentinel" (id "alerts") current with what an auditor most needs to see about refusals.
 Each time you run: query decisions for refusals (sum of decisions.refused grouped by decisions.rule and decisions.agent, and the most recent refused rows). Then make sure the Sentinel page has, and only has:
 1. A "value" widget titled "Refusals so far" showing sum of decisions.refused.
-2. A "refusal-stamps" widget titled "Refused, by rule" mapping rule to decisions.rule and count to sum of decisions.refused.
+2. The "refusal-stamps" widget titled "Refused, by rule" that is already on the page. It is configured, and Studio's agents cannot configure it: never add, move, remove or reconfigure it, and never add a second one.
 3. A "grid" widget titled "Latest refusals" with decisions.seq, decisions.at, decisions.agent, decisions.recipient, decisions.amount, decisions.rule, decisions.purpose, filtered to decisions.outcome = Refused.
-Keep the existing text widget at the top. Reuse widgets that already exist rather than adding duplicates: view_page first.
+Keep the existing text widget at the top, and place new widgets below the stamps. Reuse widgets that already exist rather than adding duplicates: view_page first.
 Delegate to the page agent to add and place widgets on the "alerts" page, and to the widget agent to configure each one. Finish with one sentence saying what changed and the single most notable refusal (the rule, the amount, the recipient). ${DOMAIN}`;
 
 const STARTERS: AgAiPromptStarter[] = [
