@@ -70,7 +70,7 @@ impl Hub {
         self.tx.subscribe()
     }
 
-    fn send(&self, v: Value) {
+    pub fn send(&self, v: Value) {
         let _ = self.tx.send(Arc::from(v.to_string()));
     }
 

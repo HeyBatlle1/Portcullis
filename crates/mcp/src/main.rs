@@ -16,6 +16,8 @@
 //! | `PORTCULLIS_SCENARIOS`     | demo inboxes, comma separated; first is default  |
 //! | `PORTCULLIS_DEMO_MODELS`   | models offered on the console, comma separated    |
 //! | `PORTCULLIS_DEMO_DAILY_RUNS` | demo runs allowed per UTC day (default 30)      |
+//! | `PORTCULLIS_SIEGE_MODELS` | models a siege slot may hold                    |
+//! | `PORTCULLIS_SIEGE_DAILY`   | sieges allowed per UTC day (default 15)          |
 //! | `PORTCULLIS_STUDIO_DIR`    | built audit desk (default `crates/mcp/studio-dist`) |
 //! | `AG_STUDIO_LICENSE`        | AG Studio licence key (optional; watermark without) |
 //! | `PORTCULLIS_STUDIO_MODELS` | models the audit desk's agents may use            |
@@ -74,6 +76,13 @@ fn env_or(k: &str, d: &str) -> String {
 const DEFAULT_MODELS: &str =
     "anthropic/claude-sonnet-5.5,anthropic/claude-haiku-5.5,google/gemini-3.8-flash";
 
+/// Models a siege slot may hold: the default roster's eight labs, plus a few
+/// more to swap in.
+const SIEGE_MODELS: &str = "anthropic/claude-opus-5.5,openai/gpt-5.6-terra,x-ai/grok-4.7,\
+moonshotai/kimi-k3.1-pro,google/gemini-3.8-flash,deepseek/deepseek-v4.1-flash,\
+qwen/qwen3.8-max-0902,mistralai/mistral-large-4-0,anthropic/claude-sonnet-5.5,\
+anthropic/claude-haiku-5.5,openai/gpt-5.6-luna,z-ai/glm-5.3";
+
 fn random_token(prefix: &str) -> Result<String, String> {
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).map_err(|e| format!("randomness: {e}"))?;
@@ -111,6 +120,7 @@ fn serve() -> Result<(), String> {
     // The demo agent: on only when a model key is present. It gets its own
     // token, minted now, held only in memory, and goes through /mcp over
     // loopback like any other agent.
+    let mut slot_tokens: Vec<String> = Vec::new();
     let demo = match std::env::var("OPENROUTER_API_KEY")
         .ok()
         .filter(|k| !k.trim().is_empty())
@@ -140,6 +150,12 @@ fn serve() -> Result<(), String> {
             }
             let token = random_token("pcx_demo_")?;
             tokens = tokens.with_token("lakeshore-ap", &token);
+            // One token per siege slot, minted here and held only in memory.
+            for i in 0..portcullis_demo::siege::SLOTS {
+                let t = random_token("pcx_siege_")?;
+                tokens = tokens.with_token(&format!("siege-{}", i + 1), &t);
+                slot_tokens.push(t);
+            }
             if !hosts.iter().any(|h| h == "127.0.0.1") {
                 hosts.push("127.0.0.1".into());
             }
@@ -211,6 +227,29 @@ fn serve() -> Result<(), String> {
             move |r, len| to_hub.record(r, len),
         );
         let demo_on = demo.is_some();
+        // The siege shares the demo's key, scenario and endpoints.
+        let siege = demo.as_ref().map(|d| {
+            portcullis_mcp::siege::Siege::new(
+                gate.clone(),
+                hub.clone(),
+                audit.clone(),
+                Arc::new(unix_now),
+                portcullis_mcp::siege::SiegeConfig {
+                    scenario: d.scenarios[0].clone(),
+                    models: env_or("PORTCULLIS_SIEGE_MODELS", SIEGE_MODELS)
+                        .split(',')
+                        .map(|m| m.trim().to_string())
+                        .filter(|m| !m.is_empty())
+                        .collect(),
+                    openrouter_key: d.openrouter_key.clone(),
+                    model_url: d.model_url.clone(),
+                    mcp_url: d.mcp_url.clone(),
+                    slot_tokens: slot_tokens.clone(),
+                    daily: env_or("PORTCULLIS_SIEGE_DAILY", "15").parse().unwrap_or(15),
+                    shift: portcullis_demo::siege::SHIFT,
+                },
+            )
+        });
         let console = Console::new(
             gate.clone(),
             chain,
@@ -223,6 +262,10 @@ fn serve() -> Result<(), String> {
         let router = app(server, tokens, hosts.clone())
             .merge(console::routes(console))
             .merge(portcullis_mcp::studio::routes(studio));
+        let router = match siege {
+            Some(s) => router.merge(portcullis_mcp::siege::routes(s)),
+            None => router,
+        };
 
         // The settlement loop. Decisions happen on request; money moves here.
         let driver = gate.clone();

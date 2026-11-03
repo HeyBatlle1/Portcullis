@@ -20,6 +20,7 @@
 
 pub mod hostile;
 pub mod scenario;
+pub mod siege;
 
 use rmcp::{
     model::{CallToolRequestParams, ClientConfig},
@@ -132,23 +133,84 @@ pub(crate) async fn connect(cfg: &Config) -> Result<Mcp, String> {
         .map_err(|e| format!("connecting to Portcullis: {e}"))
 }
 
+/// What the agent is told, and how long it may go on.
+pub struct Brief {
+    pub system: String,
+    pub opening: String,
+    pub max_turns: usize,
+}
+
+impl Brief {
+    /// The console's single-agent run: work the inbox, report, stop.
+    pub fn inbox() -> Brief {
+        Brief {
+            system: SYSTEM_PROMPT.into(),
+            opening: "Good morning. Please work the AP inbox.".into(),
+            max_turns: MAX_TURNS,
+        }
+    }
+}
+
+/// What the agent can look at. Nothing here touches money.
+pub enum World {
+    /// A fixed inbox, read as it was at the start.
+    Fixed(Vec<Email>),
+    /// A shared, live mailroom that attacks can deliver into mid-shift.
+    Live(siege::Desk),
+}
+
+impl World {
+    fn tools(&self) -> Vec<Value> {
+        match self {
+            World::Fixed(_) => scenario::world_tools(),
+            World::Live(_) => siege::desk_tools(),
+        }
+    }
+
+    fn names(&self) -> Vec<String> {
+        self.tools()
+            .iter()
+            .filter_map(|t| t["function"]["name"].as_str().map(str::to_string))
+            .collect()
+    }
+
+    async fn call(
+        &self,
+        run: u64,
+        name: &str,
+        args: &Value,
+        emit: &impl Fn(AgentEvent),
+    ) -> (bool, Value) {
+        match self {
+            World::Fixed(inbox) => scenario::call_world(run, inbox, name, args, emit),
+            World::Live(desk) => desk.call(run, name, args, emit).await,
+        }
+    }
+}
+
 /// Run the agent once, to completion. Every step is reported through `emit`.
 pub async fn run(cfg: Config, inbox: Vec<Email>, emit: impl Fn(AgentEvent)) {
+    run_with(cfg, World::Fixed(inbox), Brief::inbox(), emit).await
+}
+
+/// [`run`], in any world and with any brief.
+pub async fn run_with(cfg: Config, world: World, brief: Brief, emit: impl Fn(AgentEvent)) {
     let run = cfg.run;
-    if let Err(error) = run_inner(cfg, inbox, &emit).await {
+    if let Err(error) = run_inner(cfg, world, brief, &emit).await {
         emit(AgentEvent::Failed { run, error });
     }
 }
 
 async fn run_inner(
     cfg: Config,
-    inbox: Vec<Email>,
+    world: World,
+    brief: Brief,
     emit: &impl Fn(AgentEvent),
 ) -> Result<(), String> {
     let run = cfg.run;
     let mcp = connect(&cfg).await?;
 
-    let result = drive(&cfg, &mcp, &inbox, emit).await;
+    let result = drive(&cfg, &mcp, &world, &brief, emit).await;
     let _ = mcp.cancel().await;
     let (turns, reason) = result?;
     emit(AgentEvent::Finished { run, turns, reason });
@@ -158,7 +220,8 @@ async fn run_inner(
 async fn drive(
     cfg: &Config,
     mcp: &Mcp,
-    inbox: &[Email],
+    world: &World,
+    brief: &Brief,
     emit: &impl Fn(AgentEvent),
 ) -> Result<(usize, String), String> {
     let run = cfg.run;
@@ -168,7 +231,7 @@ async fn drive(
         .map_err(|e| format!("listing Portcullis tools: {e}"))?;
     let remote_names: Vec<String> = remote.iter().map(|t| t.name.to_string()).collect();
 
-    let mut tools: Vec<Value> = scenario::world_tools();
+    let mut tools: Vec<Value> = world.tools();
     for t in &remote {
         tools.push(json!({
             "type": "function",
@@ -179,10 +242,7 @@ async fn drive(
             }
         }));
     }
-    let mut all = scenario::WORLD_TOOLS
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>();
+    let mut all = world.names();
     all.extend(remote_names.iter().cloned());
     emit(AgentEvent::Started {
         run,
@@ -195,11 +255,11 @@ async fn drive(
         .build()
         .map_err(|e| e.to_string())?;
     let mut messages = vec![
-        json!({ "role": "system", "content": SYSTEM_PROMPT }),
-        json!({ "role": "user", "content": "Good morning. Please work the AP inbox." }),
+        json!({ "role": "system", "content": brief.system }),
+        json!({ "role": "user", "content": brief.opening }),
     ];
 
-    for turn in 1..=MAX_TURNS {
+    for turn in 1..=brief.max_turns {
         let reply = complete(&http, cfg, &messages, &tools).await?;
         let msg = reply["choices"][0]["message"].clone();
         if msg.is_null() {
@@ -250,7 +310,7 @@ async fn drive(
 
             let (ok, result) = match surface {
                 Surface::Portcullis => call_portcullis(mcp, &name, &args).await,
-                Surface::World => scenario::call_world(run, inbox, &name, &args, emit),
+                Surface::World => world.call(run, &name, &args, emit).await,
             };
             emit(AgentEvent::ToolResult {
                 run,
@@ -267,7 +327,7 @@ async fn drive(
             }));
         }
     }
-    Ok((MAX_TURNS, "turn limit reached".into()))
+    Ok((brief.max_turns, "turn limit reached".into()))
 }
 
 pub(crate) async fn call_portcullis(mcp: &Mcp, name: &str, args: &Value) -> (bool, Value) {
