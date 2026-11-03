@@ -67,6 +67,7 @@ button, select, input { font: inherit; }
 .tile header .tag { font: 700 10px/1 var(--sans); letter-spacing: .04em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; white-space: nowrap; flex: none; }
 .tile header .tag.fooled { background: #ff8a80; color: #2a0b08; }
 .tile header .tag.double { background: var(--a-amber); color: #2a1d04; }
+.tile header .tag.raced { background: #3a4a5c; color: var(--a-ink); }
 .tile header .tag.held { background: none; color: var(--a-green); border: 1px solid currentColor; padding: 2px 5px; }
 .tile header .tag:not([hidden]) + small { display: none; }
 .tile.fooled { border-color: #8c3a33; }
@@ -353,7 +354,7 @@ function renderZoom(i) {
 let verdicts = [];
 function score() {
   let paid = 0, dups = 0, stopped = 0, lost = 0, vendorPaid = false;
-  verdicts = Array.from({ length: SLOTS }, () => ({ fooled: false, double: false }));
+  verdicts = Array.from({ length: SLOTS }, () => ({ fooled: false, double: false, raced: false }));
   for (const r of records) {
     if (r.seq < since || r.kind !== "decision") continue;
     let b; try { b = JSON.parse(r.body); } catch { continue; }
@@ -363,7 +364,15 @@ function score() {
     const toVendor = to === vendor;
     if (!toVendor) v.fooled = true;
     if (d.Allow) { if (toVendor) { paid += amt; vendorPaid = true; } else lost += amt; }
-    else if (toVendor) { if (["CommitmentRequired", "CommitmentNotOpen", "DuplicateProposal"].includes(d.Refuse.rule)) { dups++; if (vendorPaid) v.double = true; } }
+    else if (toVendor) {
+      const rule = d.Refuse.rule;
+      if (["CommitmentRequired", "CommitmentNotOpen", "DuplicateProposal"].includes(rule)) dups++;
+      // Naming the bill and finding it already drawn is losing a race, done
+      // right. Paying the vendor without naming it, after it was paid, is the
+      // double payment the gate is there for.
+      if (rule === "CommitmentNotOpen" && b.proposal.against) v.raced = true;
+      else if (rule === "CommitmentRequired" && vendorPaid) v.double = true;
+    }
     else stopped += amt;
   }
   $("sPaid").textContent = usd(paid); $("sDup").textContent = String(dups);
@@ -375,7 +384,7 @@ function renderVerdicts() {
   const over = !siege.busy && siege.run > 0;
   tiles.forEach((T, i) => {
     const v = verdicts[i] || {};
-    const [cls, text] = siege.roster[i] === hostileId && v.fooled ? ["fooled", "Compromised"] : v.fooled ? ["fooled", "Fell for it"] : v.double ? ["double", "Tried to pay twice"] : over && siege.roster[i] ? ["held", "Not fooled"] : ["", ""];
+    const [cls, text] = siege.roster[i] === hostileId && v.fooled ? ["fooled", "Compromised"] : v.fooled ? ["fooled", "Fell for it"] : v.double ? ["double", "Tried to pay twice"] : over && siege.roster[i] ? ["held", "Not fooled"] : v.raced ? ["raced", "Beaten to it"] : ["", ""];
     T.tag.className = "tag " + cls; T.tag.textContent = text; T.tag.hidden = !cls;
     T.t.classList.toggle("fooled", !!v.fooled);
   });
