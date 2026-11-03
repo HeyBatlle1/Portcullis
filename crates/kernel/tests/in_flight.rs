@@ -416,3 +416,85 @@ fn a_smaller_payment_to_a_scheduled_payee_is_not_a_silent_partial_draw() {
         }
     );
 }
+
+// ── an approved bill is paid once ───────────────────────────────────────────
+
+fn invoice(minor: u64) -> Commitment {
+    Commitment {
+        id: CommitmentId::new("INV-1"),
+        recipient: rid(VENDOR),
+        earmarked: minor,
+        window: TimeWindow::new(T0, T0 + DAY),
+        state: CommitmentState::Open,
+        memo: "one approved bill".into(),
+    }
+}
+
+/// Eight clerks, one bill. The first payment draws the bill. A second clerk
+/// who names the bill is refused because it is no longer open. A third who
+/// pays the same amount to the same vendor without naming it matches nothing;
+/// without `CommitmentsOnly` that is an ordinary discretionary payment to a
+/// standing payee, and the vendor is paid twice.
+#[test]
+fn without_commitments_only_a_duplicate_slips_through_as_discretionary() {
+    let mut l = Ledger::new(AssetId::usd(), 100_000);
+    l.commitments.push(invoice(12_846));
+    let p = policy(vec![]);
+
+    let first = adjudicate(&mut l, &p, &proposal("p1", VENDOR, 12_846), T0);
+    assert!(first.decision().is_allowed(), "first clerk pays the bill");
+
+    let mut named = proposal("p2", VENDOR, 12_846);
+    named.against = Some(CommitmentId::new("INV-1"));
+    assert_eq!(
+        adjudicate(&mut l, &p, &named, T0).decision().refused_by(),
+        Some(RuleId::CommitmentNotOpen)
+    );
+
+    // The hole this rule exists to close.
+    let unnamed = adjudicate(&mut l, &p, &proposal("p3", VENDOR, 12_846), T0);
+    assert!(
+        unnamed.decision().is_allowed(),
+        "documents the gap without the rule"
+    );
+}
+
+#[test]
+fn commitments_only_refuses_the_duplicate_and_still_pays_the_bill() {
+    let mut l = Ledger::new(AssetId::usd(), 100_000);
+    l.commitments.push(invoice(12_846));
+    let p = policy(vec![Rule::CommitmentsOnly {}]);
+
+    // The bill itself is paid, unnamed, by exact-amount match.
+    let first = adjudicate(&mut l, &p, &proposal("p1", VENDOR, 12_846), T0);
+    assert!(first.decision().is_allowed());
+
+    let dup = adjudicate(&mut l, &p, &proposal("p2", VENDOR, 12_846), T0);
+    assert_eq!(
+        dup.decision().refused_by(),
+        Some(RuleId::CommitmentRequired)
+    );
+    // Refused means nothing reserved: only the first payment is held.
+    assert_eq!(l.reserved_total(), 12_846);
+}
+
+/// Rules apply in order, so an AP policy can still say *why* a big payment is
+/// wrong before it says the payment was not on an approved bill.
+#[test]
+fn commitments_only_yields_to_an_earlier_rule() {
+    let mut l = Ledger::new(AssetId::usd(), 100_000);
+    let p = policy(vec![
+        Rule::PerTransactionMax { minor: 50_000 },
+        Rule::CommitmentsOnly {},
+    ]);
+    let big = adjudicate(&mut l, &p, &proposal("p1", VENDOR, 60_000), T0);
+    assert_eq!(
+        big.decision().refused_by(),
+        Some(RuleId::ExceedsPerTransaction)
+    );
+    let small = adjudicate(&mut l, &p, &proposal("p2", VENDOR, 100), T0);
+    assert_eq!(
+        small.decision().refused_by(),
+        Some(RuleId::CommitmentRequired)
+    );
+}

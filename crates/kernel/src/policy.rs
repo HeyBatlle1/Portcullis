@@ -49,6 +49,8 @@ pub enum RuleId {
     CommitmentRecipientMismatch,
     /// A commitment was named, but the proposal is larger than its earmark.
     CommitmentAmountExceeded,
+    /// The policy pays approved bills only, and this proposal matched none.
+    CommitmentRequired,
 }
 
 impl RuleId {
@@ -73,6 +75,7 @@ impl RuleId {
             RuleId::CommitmentWindowClosed => "commitment window is not open",
             RuleId::CommitmentRecipientMismatch => "commitment names a different recipient",
             RuleId::CommitmentAmountExceeded => "over the amount this commitment earmarked",
+            RuleId::CommitmentRequired => "only approved bills may be paid",
         }
     }
 }
@@ -93,6 +96,14 @@ pub enum Rule {
     AssetAllowlist { assets: Vec<AssetId> },
     /// Minutes from UTC midnight, half-open. `from == until` means always.
     TimeOfDay { from_minute: u32, until_minute: u32 },
+    /// No discretionary payments at all: every payment must draw on an open
+    /// commitment, named or matched. This is how an accounts-payable desk
+    /// works, and it is what stops a duplicate: once a bill is paid, a second
+    /// payment of the same amount to the same payee matches nothing and is
+    /// refused, instead of quietly going through as an ordinary payment.
+    /// Applied in order with the other discretionary rules, so a proposal that
+    /// breaks an earlier rule is refused by that one.
+    CommitmentsOnly {},
 }
 
 /// A recipient the agent may pay repeatedly, with no commitment naming it.

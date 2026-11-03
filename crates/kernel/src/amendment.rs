@@ -158,6 +158,7 @@ fn rule_bytes(r: &Rule) -> Vec<u8> {
             v.extend_from_slice(&from_minute.to_be_bytes());
             v.extend_from_slice(&until_minute.to_be_bytes());
         }
+        Rule::CommitmentsOnly {} => v.push(7),
     }
     v
 }

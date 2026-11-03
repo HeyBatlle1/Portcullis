@@ -202,6 +202,9 @@ fn apply(rule: &Rule, ledger: &Ledger, minor: u64, now: Timestamp) -> Result<(),
             RuleId::BreachesBalanceFloor,
         ),
         Rule::AssetAllowlist { .. } => Ok(()), // checked before either path
+        // Only ever reached on the discretionary path: a commitment draw
+        // returned before the rules were applied.
+        Rule::CommitmentsOnly {} => Err(RuleId::CommitmentRequired),
         Rule::TimeOfDay {
             from_minute,
             until_minute,

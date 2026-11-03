@@ -64,6 +64,7 @@ const RULE_WORDS: Record<string, string> = {
   CommitmentNotOpen: 'Bill already paid or withdrawn',
   CommitmentWindowClosed: 'Bill not payable now',
   CommitmentAmountExceeded: 'More than the bill',
+  CommitmentRequired: 'Not an approved bill',
   OutsideTimeWindow: 'Outside allowed hours',
 };
 

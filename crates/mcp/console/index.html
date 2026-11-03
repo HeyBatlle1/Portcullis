@@ -451,6 +451,7 @@ const ruleText = {
   VelocityMax: (r) => `At most ${r.count} payments in any ${r.window / 60} minutes`,
   BalanceFloor: (r) => `The balance never goes below ${fmtMinor(r.minor)}`,
   AssetAllowlist: (r) => `Currencies allowed: ${r.assets.map((a) => a.symbol).join(", ")}`,
+  CommitmentsOnly: () => "Only approved bills may be paid; nothing goes out on the agent's say-so alone",
 };
 function ruleLine(rule) {
   const [k, v] = Object.entries(rule)[0] || [];

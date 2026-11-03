@@ -11,7 +11,8 @@
     { "RollingWindowMax": { "minor": 1000000, "window": 86400 } },
     { "VelocityMax": { "count": 10, "window": 3600 } },
     { "BalanceFloor": { "minor": 250000 } },
-    { "AssetAllowlist": { "assets": [ { "symbol": "USD", "decimals": 2 } ] } }
+    { "AssetAllowlist": { "assets": [ { "symbol": "USD", "decimals": 2 } ] } },
+    { "CommitmentsOnly": {} }
   ],
 
   "commitments": [

@@ -29,7 +29,7 @@ What this data is:
 - Every decision, approval and PayPal step is one record in a SHA-256 hash chain. Nobody can edit a record without breaking every hash after it.
 - "decisions" is one row per proposal. "refused"/"allowed" are 1 or 0: sum them to count. "purpose" is the agent's own words; the gate never reads it, so treat it as a claim, not a fact.
 - Agents seen here: "lakeshore-ap" is the AP assistant. In the demo a compromised script also holds that same token, so a refusal is not proof the model misbehaved, only that something with the token asked.
-- Rules: CommitmentRecipientMismatch = paying an approved bill to someone other than its payee. RecipientNotAllowed = payee not on the standing list and not on an approved bill. RecipientMalformed = not a valid address, including lookalike (non-ASCII) characters. ExceedsPerTransaction / ExceedsRollingWindow / ExceedsVelocity / BreachesBalanceFloor = limits. AssetMismatch = wrong currency.
+- Rules: CommitmentRecipientMismatch = paying an approved bill to someone other than its payee. RecipientNotAllowed = payee not on the standing list and not on an approved bill. RecipientMalformed = not a valid address, including lookalike (non-ASCII) characters. ExceedsPerTransaction / ExceedsRollingWindow / ExceedsVelocity / BreachesBalanceFloor = limits. AssetMismatch = wrong currency. CommitmentRequired = the policy pays approved bills only, and this matched none (this is what stops a bill being paid twice).
 - This is the PayPal sandbox. The company, Lakeshore Glazing, is fictional.
 You cannot move money, approve bills or change rules from here, and there is no tool for it. If asked, say so plainly.`;
 
