@@ -115,10 +115,12 @@ missing, visitors are not counted at all and only the site-wide caps apply.
 That is deliberate: the other choice, one shared allowance, would quietly turn
 the demo off for everyone after a few uses.
 
-The assumption that Cloudflare sets this header on Render rests on Render's
-current setup, observed from outside, not on a documented guarantee. Once
-deployed we check that the header arrives; if Render changes its edge, the
-fallback above is what happens.
+That Cloudflare sets this header on Render is Render's current setup,
+observed, not a documented guarantee. We checked it on the hosted demo on
+2026-11-03: from one home connection, the sixth console run of the day was
+refused. The same test from a cloud machine whose outbound address rotates
+got all eight runs it asked for, which is the speed bump's limit shown in
+practice. If Render changes its edge, the fallback above is what happens.
 
 ## The audit desk
 
