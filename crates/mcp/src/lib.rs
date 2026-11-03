@@ -35,7 +35,8 @@ use axum::{
 };
 use portcullis_executor::{Gatehouse, Rail};
 use portcullis_kernel::{
-    AgentId, Amount, AssetId, CommitmentId, Decision, Proposal, ProposalId, Timestamp,
+    AgentId, Amount, AssetId, CommitmentId, CommitmentState, Decision, Proposal, ProposalId,
+    Timestamp,
 };
 use rmcp::{
     handler::server::{router::tool::ToolRouter, tool::Extension, wrapper::Parameters},
@@ -52,6 +53,9 @@ use tokio::sync::Mutex;
 /// Longest `purpose` accepted. It is untrusted text that lands in the audit
 /// log; there is no reason to let an agent write a novel into it.
 pub const MAX_PURPOSE: usize = 1000;
+
+/// How many commitments `list_commitments` shows, newest kept.
+pub const LISTED_COMMITMENTS: usize = 10;
 
 /// The clock, injected so tests are deterministic.
 pub type Clock = Arc<dyn Fn() -> Timestamp + Send + Sync>;
@@ -345,21 +349,38 @@ and in-flight payments are set aside."
     }
 
     #[tool(
-        description = "Scheduled payments you may draw against by naming them in \
-propose_payment's `commitment` field. Each one is a specific recipient, amount and window."
+        description = "Scheduled payments. An `open` one you may draw against by naming \
+it in propose_payment's `commitment` field; each is a specific recipient, amount and window. \
+One that is `paying` or `paid` has already been drawn, by you or by someone else."
     )]
     async fn list_commitments(&self) -> Result<CallToolResult, ErrorData> {
         let now = (self.clock)();
         let list = self
             .gate
             .with_state(|s| {
-                s.ledger
+                // Paid bills stay listed until their window closes. Hiding them
+                // made a bill another agent had just paid look as if it had
+                // never been approved, and agents told the owner exactly that.
+                let mut shown: Vec<_> = s
+                    .ledger
                     .commitments
                     .iter()
-                    .filter(|c| c.is_open() && !c.window.has_closed(now))
+                    .filter(|c| c.state != CommitmentState::Expired && !c.window.has_closed(now))
+                    .collect();
+                // Newest last in the ledger; keep the listing short.
+                let skip = shown.len().saturating_sub(LISTED_COMMITMENTS);
+                shown.drain(..skip);
+                shown
+                    .into_iter()
                     .map(|c| {
                         json!({
                             "id": c.id,
+                            "status": match c.state {
+                                CommitmentState::Open => "open",
+                                CommitmentState::Drawing => "paying",
+                                CommitmentState::Consumed => "paid",
+                                CommitmentState::Expired => "expired",
+                            },
                             "recipient": c.recipient,
                             "amount": s.ledger.amount(c.earmarked).decimal_string(),
                             "currency": s.ledger.asset.symbol,

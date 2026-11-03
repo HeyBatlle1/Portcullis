@@ -12,7 +12,8 @@
 //!   seven are refused as not an approved bill, so the vendor is paid once;
 //! * all eight then try to pay the attacker against the bill, and all eight
 //!   are refused because the bill is pinned to its payee;
-//! * each slot proposes under its own identity;
+//! * each slot proposes under its own identity, including one whose model
+//!   stopped at once and was reminded the shift was still running;
 //! * the start, the attack and the end are in a chain that verifies.
 
 use axum::{extract::State, routing::post, Json, Router};
@@ -69,6 +70,16 @@ async fn model(State(()): State<()>, Json(req): Json<Value>) -> Json<Value> {
             })
         })
     };
+    // Clerk 8 quits at once, the way one real model did on a live shift. The
+    // harness reminds it once that the shift is running; after that it works.
+    let reminded = msgs
+        .iter()
+        .any(|m| m["role"] == "user" && m["content"] == portcullis_demo::SHIFT_REMINDER);
+    if req["model"] == "scripted/clerk-8" && !reminded {
+        return Json(json!({ "choices": [ { "message": {
+            "role": "assistant", "content": "I've read the brief. Nothing to do yet."
+        } } ] }));
+    }
     let n = tools.len();
     let last = tools.last().cloned().unwrap_or_default();
     let msg = if n == 0 {

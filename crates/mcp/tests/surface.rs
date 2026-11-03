@@ -40,6 +40,14 @@ async fn start() -> Harness {
         state: CommitmentState::Open,
         memo: "November rent".into(),
     });
+    ledger.commitments.push(Commitment {
+        id: CommitmentId::new("parking-nov"),
+        recipient: RecipientId::parse("garage@example.com").unwrap(),
+        earmarked: 1_000,
+        window: TimeWindow::new(T0 - 10, T0 + 86_400),
+        state: CommitmentState::Open,
+        memo: "November parking".into(),
+    });
     let policy = Policy {
         standing: vec![StandingRecipient {
             recipient: vendor,
@@ -288,10 +296,10 @@ async fn one_agent_cannot_read_anothers_proposals() {
 async fn balance_excludes_what_is_scheduled_and_what_is_in_flight() {
     let h = start().await;
     let mut s = Session::open(&h, ALICE).await;
-    // $500 balance, $300 earmarked for rent.
+    // $500 balance, $300 earmarked for rent and $10 for parking.
     assert_eq!(
         s.tool("get_balance", json!({})).await["available"],
-        "200.00"
+        "190.00"
     );
     s.tool(
         "propose_payment",
@@ -301,12 +309,42 @@ async fn balance_excludes_what_is_scheduled_and_what_is_in_flight() {
     .await;
     assert_eq!(
         s.tool("get_balance", json!({})).await["available"],
-        "160.00"
+        "150.00"
     );
 
     let c = s.tool("list_commitments", json!({})).await;
     assert_eq!(c["commitments"][0]["id"], "rent-nov");
     assert_eq!(c["commitments"][0]["amount"], "300.00");
+}
+
+#[tokio::test]
+async fn a_paid_bill_stays_listed_as_paid() {
+    // Hiding a drawn commitment made a bill another agent had just paid look
+    // as if it had never been approved; agents then told the owner so.
+    let h = start().await;
+    let mut alice = Session::open(&h, ALICE).await;
+    let paid = alice
+        .tool(
+            "propose_payment",
+            json!({"recipient":"garage@example.com","amount":"10.00","currency":"USD",
+            "commitment":"parking-nov","purpose":"November parking"}),
+        )
+        .await;
+    assert_eq!(paid["decision"], "allowed");
+
+    let mut bob = Session::open(&h, BOB).await;
+    let c = bob.tool("list_commitments", json!({})).await;
+    let status = |id: &str| {
+        c["commitments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["id"] == id)
+            .map(|x| x["status"].clone())
+    };
+    assert_eq!(status("rent-nov"), Some(json!("open")));
+    // In flight here (the rail never settles in this harness), and listed.
+    assert_eq!(status("parking-nov"), Some(json!("paying")));
 }
 
 #[tokio::test]

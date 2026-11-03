@@ -113,6 +113,10 @@ pub struct Desk {
 }
 
 impl Desk {
+    pub fn shift_running(&self) -> bool {
+        !self.room.shift_over() && !self.room.is_closed()
+    }
+
     pub fn new(room: Arc<Mailroom>) -> Desk {
         Desk {
             room,
