@@ -14,7 +14,7 @@
 //! | `PORTCULLIS_DRIVE_SECS`    | settlement poll interval (default 5)              |
 //! | `OPENROUTER_API_KEY`       | enables the demo agent on the console             |
 //! | `PAYPAL_VENDOR_CLIENT_ID/SECRET` | the vendor's sandbox app; siege bills become PayPal invoices |
-//! | `PAYPAL_PAYER_EMAIL`       | the sandbox account Portcullis pays from; the invoices' recipient |
+//! | `PAYPAL_PAYER_EMAIL`       | optional: the sandbox account Portcullis pays from, emailed the invoices |
 //! | `PORTCULLIS_SCENARIOS`     | demo inboxes, comma separated; first is default  |
 //! | `PORTCULLIS_DEMO_MODELS`   | models offered on the console, comma separated    |
 //! | `PORTCULLIS_DEMO_DAILY_RUNS` | demo runs allowed per UTC day (default 30)      |
@@ -245,8 +245,7 @@ fn serve() -> Result<(), String> {
             }
             let payer_email = std::env::var("PAYPAL_PAYER_EMAIL")
                 .ok()
-                .filter(|e| !e.is_empty())
-                .ok_or("PAYPAL_VENDOR_CLIENT_ID is set, so PAYPAL_PAYER_EMAIL must be too")?;
+                .filter(|e| !e.is_empty());
             eprintln!("portcullis: siege bills are PayPal invoices from the vendor's account");
             Some(portcullis_mcp::siege::Billing {
                 invoicer: Arc::new(portcullis_executor::Invoicer::new(

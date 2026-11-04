@@ -94,8 +94,10 @@ pub struct SiegeConfig {
 /// The vendor's side of the bill: Northline's PayPal account, and who it bills.
 pub struct Billing {
     pub invoicer: Arc<Invoicer>,
-    /// The PayPal account Portcullis pays from: the invoice's recipient.
-    pub payer_email: String,
+    /// The PayPal account Portcullis pays from: the invoice's recipient. When
+    /// it is not set, the invoice is addressed to Lakeshore by name only and
+    /// PayPal sends no email; it is still issued, payable and recordable.
+    pub payer_email: Option<String>,
 }
 
 /// How long after a shift starts the vendor keeps watching for the payout,
@@ -403,7 +405,7 @@ impl<R: Rail + 'static> Siege<R> {
             Ok((issued, link)) => {
                 (self.audit)(json!({
                     "kind": "invoice", "at": now, "action": "issued", "by": "vendor", "run": run,
-                    "number": issued.number, "paypal_id": issued.id, "to": b.payer_email,
+                    "number": issued.number, "paypal_id": issued.id, "to": b.payer_email.as_deref().unwrap_or("Lakeshore Glazing (no email on file)"),
                     "amount": self.cfg.scenario.amount, "currency": "USD", "link": link,
                 }));
                 (issued.number.clone(), Some((issued, link)))
@@ -448,7 +450,7 @@ impl<R: Rail + 'static> Siege<R> {
                 business: "Lakeshore Glazing".into(),
                 given: "Dana".into(),
                 surname: "Okafor".into(),
-                email: Some(b.payer_email.clone()),
+                email: b.payer_email.clone(),
             },
             reference: "Meridian Tower storefront".into(),
             note: "Fictional company, PayPal sandbox. Issued for a Portcullis siege.".into(),

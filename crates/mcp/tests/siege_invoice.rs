@@ -241,7 +241,7 @@ async fn the_bill_is_a_paypal_invoice_and_reads_paid_once_the_payout_settles() {
             grace: Duration::from_secs(1),
             billing: Some(Billing {
                 invoicer: Arc::new(invoicer),
-                payer_email: PAYER.into(),
+                payer_email: Some(PAYER.into()),
             }),
         },
     );
