@@ -84,6 +84,31 @@ impl Credentials {
         }
         Ok(c)
     }
+
+    /// The vendor's own app, for [`crate::invoicing`], from
+    /// `PAYPAL_VENDOR_CLIENT_ID` / `PAYPAL_VENDOR_CLIENT_SECRET`. Absent is not
+    /// an error: bills are then fixtures rather than PayPal invoices. Half
+    /// present is.
+    pub fn vendor_from_env() -> Result<Option<Self>, String> {
+        let id = std::env::var("PAYPAL_VENDOR_CLIENT_ID").unwrap_or_default();
+        let secret = std::env::var("PAYPAL_VENDOR_CLIENT_SECRET").unwrap_or_default();
+        match (id.is_empty(), secret.is_empty()) {
+            (true, true) => Ok(None),
+            (false, false) => {
+                if std::env::var("PAYPAL_ENV").as_deref() != Ok("sandbox") {
+                    return Err("PAYPAL_ENV must be exactly \"sandbox\"".into());
+                }
+                Ok(Some(Credentials {
+                    client_id: id,
+                    client_secret: secret,
+                }))
+            }
+            _ => Err(
+                "set both PAYPAL_VENDOR_CLIENT_ID and PAYPAL_VENDOR_CLIENT_SECRET, or neither"
+                    .into(),
+            ),
+        }
+    }
 }
 
 // ── the request body ────────────────────────────────────────────────────────
@@ -326,20 +351,23 @@ struct Token {
 /// ~9 hours). A request should never race an expiry.
 const TOKEN_MARGIN: Duration = Duration::from_secs(300);
 
-pub struct PayPal {
-    endpoint: Endpoint,
+/// One PayPal account's credentials, its access token, and an HTTP client.
+/// Shared by Payouts (the payer's side) and Invoicing (the vendor's side);
+/// each holds its own, so one party's credentials never sign the other's calls.
+pub(crate) struct Session {
+    pub(crate) endpoint: Endpoint,
     creds: Credentials,
-    http: reqwest::Client,
+    pub(crate) http: reqwest::Client,
     token: Mutex<Option<Token>>,
 }
 
-impl PayPal {
-    pub fn new(endpoint: Endpoint, creds: Credentials) -> Self {
+impl Session {
+    pub(crate) fn new(endpoint: Endpoint, creds: Credentials) -> Self {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .expect("reqwest client builds with static config");
-        PayPal {
+        Session {
             endpoint,
             creds,
             http,
@@ -347,7 +375,7 @@ impl PayPal {
         }
     }
 
-    async fn bearer(&self) -> Result<String, String> {
+    pub(crate) async fn bearer(&self) -> Result<String, String> {
         let mut slot = self.token.lock().await;
         if let Some(t) = slot.as_ref() {
             if SystemTime::now() < t.good_until {
@@ -379,12 +407,24 @@ impl PayPal {
         Ok(g.access_token)
     }
 
-    async fn forget_token(&self) {
+    pub(crate) async fn forget_token(&self) {
         *self.token.lock().await = None;
+    }
+}
+
+pub struct PayPal {
+    s: Session,
+}
+
+impl PayPal {
+    pub fn new(endpoint: Endpoint, creds: Credentials) -> Self {
+        PayPal {
+            s: Session::new(endpoint, creds),
+        }
     }
 
     async fn post_once(&self, body: &CreatePayout, key: &str) -> Submitted {
-        let bearer = match self.bearer().await {
+        let bearer = match self.s.bearer().await {
             Ok(b) => b,
             // No token means no request went out: nothing can have been created.
             // Still Unknown rather than Rejected, so a transient auth outage
@@ -392,8 +432,9 @@ impl PayPal {
             Err(e) => return Submitted::Unknown { reason: e },
         };
         let sent = self
+            .s
             .http
-            .post(format!("{}/v1/payments/payouts", self.endpoint.as_str()))
+            .post(format!("{}/v1/payments/payouts", self.s.endpoint.as_str()))
             .bearer_auth(bearer)
             .header("PayPal-Request-Id", key)
             .json(body)
@@ -428,7 +469,7 @@ impl Rail for PayPal {
             // A stale token gets one refresh. The retry carries the same
             // idempotency key, so it cannot double-pay.
             Submitted::Rejected { reason } if reason.starts_with("401") => {
-                self.forget_token().await;
+                self.s.forget_token().await;
                 self.post_once(&body, key).await
             }
             other => other,
@@ -441,15 +482,16 @@ impl Rail for PayPal {
                 reason: "malformed batch id".into(),
             };
         }
-        let bearer = match self.bearer().await {
+        let bearer = match self.s.bearer().await {
             Ok(b) => b,
             Err(e) => return Observed::Unknown { reason: e },
         };
         let r = self
+            .s
             .http
             .get(format!(
                 "{}/v1/payments/payouts/{batch_id}",
-                self.endpoint.as_str()
+                self.s.endpoint.as_str()
             ))
             .bearer_auth(bearer)
             .send()
@@ -458,7 +500,7 @@ impl Rail for PayPal {
             Ok(r) => {
                 let status = r.status().as_u16();
                 if status == 401 {
-                    self.forget_token().await;
+                    self.s.forget_token().await;
                 }
                 let text = r.text().await.unwrap_or_default();
                 classify_status(status, &text)

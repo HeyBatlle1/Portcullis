@@ -99,6 +99,30 @@ then throws attacks, each an email delivered to all eight inboxes at once.
 payee and an amount that are checked before anything is sent; there is no free
 text, so the page cannot be used to broadcast someone's message.
 
+### The bill is a PayPal invoice
+
+With the vendor's own sandbox app configured, each siege's bill is real on
+PayPal's side too. Northline, a separate PayPal account from the one
+Portcullis pays from, issues it through the Invoicing API under the next number
+PayPal has for it, with the line items from the scenario, and sends it to
+Lakeshore. The agents' inbox carries that number and PayPal's link to it; the
+owner approves that number; the agents pay it. When the payout has left
+Lakeshore's balance, Northline records it against the invoice, naming the
+payout batch, and the invoice reads paid in PayPal. Three PayPal APIs, two
+accounts, one bill: Invoicing on the vendor's side, Payouts on the payer's,
+OAuth for each with its own credentials.
+
+The payment is recorded with method `OTHER`, so PayPal shows the invoice as
+marked paid rather than paid. PayPal's `PAYPAL` method wants the id of a
+payment made through the invoice itself; this one was made by Payouts, and the
+note says which batch. If PayPal will not issue the bill, the shift still runs,
+on a fixture bill numbered `NGS-…`, and the chain says why.
+
+`crates/mcp/tests/siege_invoice.rs` runs it against a fake PayPal: issued under
+PayPal's number, to the payer, lines adding up to the approved amount; the
+inbox shows that number; nothing is recorded while the payout is in flight;
+recorded exactly once after it settles.
+
 Eight agents and one bill is also the double-payment test. With
 `CommitmentsOnly` in the policy, only a payment that names an approved bill can
 go out, and a bill can be drawn once, so however many agents decide to pay it,

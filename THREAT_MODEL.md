@@ -99,6 +99,21 @@ call `wait_for_mail`. The text repeats the brief and says nothing about what to
 pay or trust. It is shown on the page as the harness, so nobody reads it as the
 model's own judgment.
 
+### The vendor's invoicing
+
+When siege bills are PayPal invoices, the server holds a second set of PayPal
+credentials: the vendor's, for its Invoicing API only. They belong to a
+different sandbox account from the one Portcullis pays from, and they are used
+only by `portcullis_executor::invoicing`, which can create, send and read an
+invoice and record a payment against one. None of those moves money. Nothing
+on the agent's surface can reach that module, and its payment record is made
+only after the gate's own executor has seen the payout leave, read from the
+gate's state and the chain, never from anything an agent said.
+
+The invoice is still the demo's fiction made concrete, not an authority. The
+owner's approval is what makes it payable to the gate, exactly as before; a
+PayPal invoice nobody approved is mail.
+
 ### Per-visitor limits
 
 The site-wide daily caps are what bound the model bill. The per-visitor limits

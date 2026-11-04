@@ -18,7 +18,7 @@
 //!
 //! Its live events go out on `/console/stream` as `{"ch":"siege", …}`.
 
-use crate::{console::Hub, money::parse_amount, AuditSink, Clock};
+use crate::{console::Hub, money::parse_amount, AuditSink, Clock, SharedAudit};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -32,7 +32,10 @@ use portcullis_demo::{
     siege::{self, Attack, Desk, Facts, Mailroom},
     AgentEvent, Config, World,
 };
-use portcullis_executor::{Gatehouse, Rail};
+use portcullis_executor::{
+    invoicing::{Bill, Issued, Line, Party},
+    Execution, Gatehouse, Invoicer, Rail,
+};
 use portcullis_kernel::{
     Commitment, CommitmentId, CommitmentState, RecipientId, TimeWindow, Timestamp,
 };
@@ -84,7 +87,20 @@ pub struct SiegeConfig {
     /// How long past the shift a model may still be mid-turn before it is
     /// stopped; [`GRACE`] in production.
     pub grace: std::time::Duration,
+    /// When set, each siege's bill is a real PayPal invoice the vendor sends.
+    pub billing: Option<Billing>,
 }
+
+/// The vendor's side of the bill: Northline's PayPal account, and who it bills.
+pub struct Billing {
+    pub invoicer: Arc<Invoicer>,
+    /// The PayPal account Portcullis pays from: the invoice's recipient.
+    pub payer_email: String,
+}
+
+/// How long after a shift starts the vendor keeps watching for the payout,
+/// to record it against the invoice.
+pub const WATCH_INVOICE: std::time::Duration = std::time::Duration::from_secs(20 * 60);
 
 #[derive(Default)]
 struct Shift {
@@ -96,6 +112,8 @@ struct Shift {
     room: Option<Arc<Mailroom>>,
     roster: Vec<String>,
     invoice: String,
+    /// The PayPal invoice behind `invoice`, if it is one.
+    paypal: Option<Value>,
     attacks: Vec<Value>,
     logs: Vec<Vec<Value>>,
     ends_at: Timestamp,
@@ -109,6 +127,9 @@ pub struct Siege<R: Rail + 'static> {
     cfg: SiegeConfig,
     shift: Mutex<Shift>,
     visitors: crate::visitor::Quota,
+    chain: SharedAudit,
+    /// Distinguishes this process's PayPal request ids from a previous one's.
+    boot: Timestamp,
 }
 
 fn err(code: StatusCode, msg: impl Into<String>) -> (StatusCode, String) {
@@ -121,8 +142,10 @@ impl<R: Rail + 'static> Siege<R> {
         hub: Arc<Hub>,
         audit: AuditSink,
         clock: Clock,
+        chain: SharedAudit,
         cfg: SiegeConfig,
     ) -> Arc<Self> {
+        let boot = clock();
         Arc::new(Siege {
             gate,
             hub,
@@ -131,6 +154,8 @@ impl<R: Rail + 'static> Siege<R> {
             visitors: crate::visitor::Quota::new(cfg.per_visitor),
             cfg,
             shift: Mutex::new(Shift::default()),
+            chain,
+            boot,
         })
     }
 
@@ -151,6 +176,7 @@ impl<R: Rail + 'static> Siege<R> {
             "roster": s.roster,
             "slots": (0..siege::SLOTS).map(|i| format!("siege-{}", i + 1)).collect::<Vec<_>>(),
             "invoice": s.invoice,
+            "paypal": s.paypal,
             "ends_at": s.ends_at,
             "now": now,
             "attacks": s.attacks,
@@ -230,22 +256,33 @@ impl<R: Rail + 'static> Siege<R> {
             s.today += 1;
             s.run += 1;
             s.busy = true;
-            s.run
+            (s.run, std::mem::take(&mut s.invoice))
         };
+        let (run, prev) = run;
 
-        let invoice = Self::invoice(run);
-        if let Err(e) = self.approve(run, &invoice, now).await {
+        let (invoice, issued) = self.issue(run, now).await;
+        if let Err(e) = self
+            .approve(run, &prev, &invoice, issued.as_ref(), now)
+            .await
+        {
             self.lock().busy = false;
             return Err(err(StatusCode::INTERNAL_SERVER_ERROR, e));
         }
 
         // The morning's mail, with this siege's bill in it and no attack: the
         // attacks are the watcher's to throw.
-        let sc = self.scenario_for(run);
+        let sc = self.cfg.scenario.clone();
         let start: Vec<_> = sc
-            .inbox(1)
+            .inbox_for(&invoice)
             .into_iter()
             .filter(|e| e.id != "m4")
+            .map(|mut e| {
+                if let (true, Some((_, Some(link)))) = (e.id == "m1", &issued) {
+                    e.body
+                        .push_str(&format!("\n\nView this invoice in PayPal: {link}"));
+                }
+                e
+            })
             .rev()
             .collect();
         let room = Mailroom::new(start, self.cfg.shift);
@@ -255,6 +292,9 @@ impl<R: Rail + 'static> Siege<R> {
             s.room = Some(room.clone());
             s.roster = roster.clone();
             s.invoice = invoice.clone();
+            s.paypal = issued.as_ref().map(|(i, link)| {
+                json!({ "id": i.id, "number": i.number, "link": link, "status": "SENT" })
+            });
             s.attacks.clear();
             s.logs = vec![Vec::new(); siege::SLOTS];
             s.ends_at = ends_at;
@@ -265,6 +305,7 @@ impl<R: Rail + 'static> Siege<R> {
             "action": "started",
             "run": run,
             "bill": invoice,
+            "vendor": sc.vendor_payee,
             "roster": roster.iter().enumerate().map(|(i, m)| json!({
                 "agent": format!("siege-{}", i + 1), "model": m,
             })).collect::<Vec<_>>(),
@@ -272,7 +313,12 @@ impl<R: Rail + 'static> Siege<R> {
         self.hub
             .send(json!({ "ch": "siege", "siege": self.state() }));
 
+        if let Some((i, _)) = &issued {
+            tokio::spawn(self.clone().watch_invoice(invoice.clone(), i.clone()));
+        }
+
         let me = self.clone();
+        let invoice_for_task = invoice.clone();
         tokio::spawn(async move {
             let mut tasks = Vec::new();
             for (i, model) in roster.into_iter().enumerate() {
@@ -288,9 +334,10 @@ impl<R: Rail + 'static> Siege<R> {
                 let emit = move |e: AgentEvent| slot.step(i, e);
                 let room = room.clone();
                 let sc = sc.clone();
+                let bill = invoice_for_task.clone();
                 tasks.push(tokio::spawn(async move {
                     if model == hostile::ID {
-                        hostile::run(cfg, sc, emit).await
+                        hostile::run_against(cfg, sc, bill, emit).await
                     } else {
                         portcullis_demo::run_with(
                             cfg,
@@ -345,10 +392,155 @@ impl<R: Rail + 'static> Siege<R> {
         Ok(json!({ "run": run, "invoice": invoice, "ends_at": ends_at }))
     }
 
-    fn scenario_for(&self, run: u64) -> Scenario {
-        let mut sc = self.cfg.scenario.clone();
-        sc.invoice_base = INVOICE_BASE + run - 1;
-        sc
+    /// The vendor sends this siege's bill as a PayPal invoice, if billing is
+    /// on. A failure is recorded and the shift goes ahead on a fixture bill,
+    /// numbered apart so it cannot collide with one PayPal numbered.
+    async fn issue(&self, run: u64, now: Timestamp) -> (String, Option<(Issued, Option<String>)>) {
+        let Some(b) = &self.cfg.billing else {
+            return (Self::invoice(run), None);
+        };
+        match self.issue_with(b, run, now).await {
+            Ok((issued, link)) => {
+                (self.audit)(json!({
+                    "kind": "invoice", "at": now, "action": "issued", "by": "vendor", "run": run,
+                    "number": issued.number, "paypal_id": issued.id, "to": b.payer_email,
+                    "amount": self.cfg.scenario.amount, "currency": "USD", "link": link,
+                }));
+                (issued.number.clone(), Some((issued, link)))
+            }
+            Err(e) => {
+                let fixture = format!("NGS-{}", INVOICE_BASE + run - 1);
+                (self.audit)(json!({
+                    "kind": "invoice", "at": now, "action": "failed", "by": "vendor", "run": run,
+                    "error": e, "note": format!("PayPal did not issue the bill; this shift uses {fixture}, a fixture"),
+                }));
+                (fixture, None)
+            }
+        }
+    }
+
+    async fn issue_with(
+        &self,
+        b: &Billing,
+        run: u64,
+        now: Timestamp,
+    ) -> Result<(Issued, Option<String>), String> {
+        let sc = &self.cfg.scenario;
+        // PayPal knows which numbers this merchant has used, across restarts.
+        // Its suggestion is taken when it is in our series; otherwise (a
+        // merchant that has never invoiced) the series starts here.
+        let number = match b.invoicer.next_number().await {
+            Ok(n) if n.starts_with("INV-") => n,
+            _ => Self::invoice(run),
+        };
+        let bill = |number: String| Bill {
+            number,
+            currency: "USD".into(),
+            date: civil_date(now),
+            term: "NET_15".into(),
+            from: Party {
+                business: "Northline Glass Supply".into(),
+                given: "Karen".into(),
+                surname: "Lindqvist".into(),
+                email: None,
+            },
+            to: Party {
+                business: "Lakeshore Glazing".into(),
+                given: "Dana".into(),
+                surname: "Okafor".into(),
+                email: Some(b.payer_email.clone()),
+            },
+            reference: "Meridian Tower storefront".into(),
+            note: "Fictional company, PayPal sandbox. Issued for a Portcullis siege.".into(),
+            lines: sc
+                .lines
+                .iter()
+                .map(|l| Line {
+                    name: l.name.clone(),
+                    quantity: l.quantity,
+                    unit: l.unit.clone(),
+                })
+                .collect(),
+        };
+        let key = format!("siege-{}-{run}", self.boot);
+        match b.invoicer.issue(&bill(number), &key).await {
+            // Our first guess was taken (a restart, or a hand-made invoice):
+            // ask PayPal again, under a new request id.
+            Err(e) if e.contains("DUPLICATE_INVOICE_NUMBER") => {
+                let n = b.invoicer.next_number().await?;
+                b.invoicer.issue(&bill(n), &format!("{key}-b")).await
+            }
+            other => other,
+        }
+    }
+
+    /// Northline's side, after the shift starts: when the payout that paid
+    /// this bill has left Lakeshore's balance, record it against the invoice,
+    /// so the invoice reads paid in PayPal too. It reads the chain and the
+    /// gate; it can change neither.
+    async fn watch_invoice(self: Arc<Self>, bill: String, issued: Issued) {
+        let Some(b) = &self.cfg.billing else { return };
+        let started = std::time::Instant::now();
+        while started.elapsed() < WATCH_INVOICE {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            // The latest payment the gate allowed against this bill. A release
+            // reopens the bill, so a later one may be the one that pays.
+            let allowed = {
+                let c = self.chain.lock().unwrap_or_else(|p| p.into_inner());
+                c.records()
+                    .iter()
+                    .rev()
+                    .filter(|r| r.kind == "decision")
+                    .filter_map(|r| serde_json::from_str::<Value>(&r.body).ok())
+                    .find(|v| {
+                        v["proposal"]["against"] == bill.as_str()
+                            && v["adjudication"]["decision"]["Allow"].is_object()
+                    })
+                    .and_then(|v| v["proposal"]["id"].as_str().map(str::to_string))
+            };
+            let Some(pid) = allowed else { continue };
+            let pid = portcullis_kernel::ProposalId::new(pid);
+            let exec = self.gate.with_state(|s| s.execution(&pid).cloned()).await;
+            let batch = match exec {
+                Some(Execution::Settled { batch_id } | Execution::Done { batch_id }) => batch_id,
+                _ => continue,
+            };
+            let now = (self.clock)();
+            let result = b
+                .invoicer
+                .record_paid(
+                    &issued.id,
+                    &self.cfg.scenario.amount,
+                    "USD",
+                    &civil_date(now),
+                    &batch,
+                )
+                .await;
+            let status = b.invoicer.status(&issued.id).await.unwrap_or_else(|e| e);
+            let mut rec = json!({
+                "kind": "invoice", "at": now, "by": "vendor", "number": bill,
+                "paypal_id": issued.id, "batch_id": batch, "proposal": pid, "status": status,
+            });
+            match &result {
+                Ok(()) => rec["action"] = json!("paid"),
+                Err(e) => {
+                    rec["action"] = json!("not_recorded");
+                    rec["error"] = json!(e);
+                }
+            }
+            (self.audit)(rec);
+            {
+                let mut s = self.lock();
+                if s.invoice == bill {
+                    if let Some(p) = s.paypal.as_mut() {
+                        p["status"] = json!(status);
+                    }
+                }
+            }
+            self.hub
+                .send(json!({ "ch": "siege", "siege": self.state() }));
+            return;
+        }
     }
 
     fn step(&self, slot: usize, e: AgentEvent) {
@@ -366,9 +558,16 @@ impl<R: Rail + 'static> Siege<R> {
     }
 
     /// The owner approves this siege's bill; the last siege's, if unpaid, is withdrawn.
-    async fn approve(&self, run: u64, invoice: &str, now: Timestamp) -> Result<(), String> {
-        if run > 1 {
-            let prev = CommitmentId::new(Self::invoice(run - 1));
+    async fn approve(
+        &self,
+        run: u64,
+        prev: &str,
+        invoice: &str,
+        issued: Option<&(Issued, Option<String>)>,
+        now: Timestamp,
+    ) -> Result<(), String> {
+        if !prev.is_empty() {
+            let prev = CommitmentId::new(prev);
             if self.gate.withdraw(&prev).await {
                 (self.audit)(json!({
                     "kind": "approval", "at": now, "action": "withdrawn", "commitment": prev, "by": "owner",
@@ -386,7 +585,13 @@ impl<R: Rail + 'static> Siege<R> {
             earmarked,
             window: TimeWindow::new(now.saturating_sub(60), now + 14 * 86_400),
             state: CommitmentState::Open,
-            memo: format!("Northline Glass Supply - {invoice} (siege {run})"),
+            memo: match issued {
+                Some((i, _)) => format!(
+                    "Northline Glass Supply - {invoice}, PayPal invoice {} (siege {run})",
+                    i.id
+                ),
+                None => format!("Northline Glass Supply - {invoice} (siege {run})"),
+            },
         };
         self.gate.schedule(c.clone()).await?;
         (self.audit)(
@@ -477,5 +682,29 @@ async fn attack<R: Rail + 'static>(
     match s.attack(a) {
         Ok(v) => (StatusCode::ACCEPTED, Json(v)).into_response(),
         Err((c, m)) => (c, Json(json!({ "error": m }))).into_response(),
+    }
+}
+
+/// `YYYY-MM-DD` for a Unix time, UTC. (Howard Hinnant's civil-from-days.)
+pub fn civil_date(t: Timestamp) -> String {
+    let z = (t / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn civil_dates() {
+        assert_eq!(super::civil_date(0), "1970-01-01");
+        assert_eq!(super::civil_date(951_782_400), "2000-02-29");
+        assert_eq!(super::civil_date(1_793_750_400), "2026-11-04");
     }
 }

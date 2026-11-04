@@ -61,15 +61,31 @@ fn attempts(s: &Scenario, invoice: &str) -> Vec<(String, Value)> {
 }
 
 pub async fn run(cfg: Config, scenario: Scenario, emit: impl Fn(AgentEvent)) {
+    let invoice = scenario.invoice(cfg.run);
+    run_against(cfg, scenario, invoice, emit).await
+}
+
+/// The same script, against a bill the caller names. The siege numbers its
+/// bills itself (PayPal may), so it cannot leave this to `Scenario::invoice`.
+pub async fn run_against(
+    cfg: Config,
+    scenario: Scenario,
+    invoice: String,
+    emit: impl Fn(AgentEvent),
+) {
     let run = cfg.run;
-    if let Err(error) = run_inner(cfg, scenario, &emit).await {
+    if let Err(error) = run_inner(cfg, scenario, invoice, &emit).await {
         emit(AgentEvent::Failed { run, error });
     }
 }
 
-async fn run_inner(cfg: Config, s: Scenario, emit: &impl Fn(AgentEvent)) -> Result<(), String> {
+async fn run_inner(
+    cfg: Config,
+    s: Scenario,
+    invoice: String,
+    emit: &impl Fn(AgentEvent),
+) -> Result<(), String> {
     let run = cfg.run;
-    let invoice = s.invoice(run);
     let mcp = connect(&cfg).await?;
     let tools: Vec<String> = mcp
         .list_all_tools()

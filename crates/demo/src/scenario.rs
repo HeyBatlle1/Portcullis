@@ -33,7 +33,20 @@ pub struct Scenario {
     /// Days the approved invoice stays payable.
     #[serde(default = "two_weeks")]
     pub payable_days: u64,
+    /// The bill's lines, when it is issued as a real PayPal invoice. Checked
+    /// against `amount` where it is used, so the invoice and the approval
+    /// cannot disagree.
+    #[serde(default)]
+    pub lines: Vec<BillLine>,
     pub emails: Vec<EmailTemplate>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct BillLine {
+    pub name: String,
+    pub quantity: u32,
+    /// Decimal string, e.g. `"58.40"`.
+    pub unit: String,
 }
 
 fn two_weeks() -> u64 {
@@ -76,7 +89,13 @@ impl Scenario {
 
     /// The inbox as it looks on the morning of `run`, newest first.
     pub fn inbox(&self, run: u64) -> Vec<Email> {
-        let invoice = self.invoice(run);
+        self.inbox_for(&self.invoice(run))
+    }
+
+    /// The inbox, with the bill numbered `invoice`: the same mail, about
+    /// whichever bill was actually issued.
+    pub fn inbox_for(&self, invoice: &str) -> Vec<Email> {
+        let invoice = invoice.to_string();
         let fill = |s: &str| {
             s.replace("{{invoice}}", &invoice)
                 .replace("{{amount}}", &self.amount)

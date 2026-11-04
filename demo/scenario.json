@@ -8,6 +8,11 @@
   "amount": "1284.60",
   "invoice_base": 20417,
   "payable_days": 14,
+  "lines": [
+    { "name": "IGU 1\" low-E, 44 x 60", "quantity": 18, "unit": "58.40" },
+    { "name": "IGU 1\" tempered, 36 x 60", "quantity": 6, "unit": "32.90" },
+    { "name": "Freight", "quantity": 1, "unit": "36.00" }
+  ],
   "emails": [
     {
       "id": "m4",

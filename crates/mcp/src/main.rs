@@ -13,6 +13,8 @@
 //! | `PORT`                     | listen port (default 8787; Render sets this)      |
 //! | `PORTCULLIS_DRIVE_SECS`    | settlement poll interval (default 5)              |
 //! | `OPENROUTER_API_KEY`       | enables the demo agent on the console             |
+//! | `PAYPAL_VENDOR_CLIENT_ID/SECRET` | the vendor's sandbox app; siege bills become PayPal invoices |
+//! | `PAYPAL_PAYER_EMAIL`       | the sandbox account Portcullis pays from; the invoices' recipient |
 //! | `PORTCULLIS_SCENARIOS`     | demo inboxes, comma separated; first is default  |
 //! | `PORTCULLIS_DEMO_MODELS`   | models offered on the console, comma separated    |
 //! | `PORTCULLIS_DEMO_DAILY_RUNS` | demo runs allowed per UTC day (default 30)      |
@@ -216,6 +218,47 @@ fn serve() -> Result<(), String> {
         budget: Default::default(),
     });
 
+    // The vendor's own PayPal app, if configured: siege bills become real
+    // invoices. Its lines must add up to the amount the owner approves, or
+    // the invoice and the approval would disagree; that is checked here, once.
+    let billing = match (Credentials::vendor_from_env()?, demo.as_ref()) {
+        (Some(vendor), Some(d)) => {
+            let sc = &d.scenarios[0];
+            let lines: Vec<_> = sc
+                .lines
+                .iter()
+                .map(|l| portcullis_executor::invoicing::Line {
+                    name: l.name.clone(),
+                    quantity: l.quantity,
+                    unit: l.unit.clone(),
+                })
+                .collect();
+            let total = portcullis_executor::invoicing::total_minor(&lines)
+                .filter(|_| !lines.is_empty())
+                .ok_or("the scenario's bill lines are missing or malformed")?;
+            let amount = portcullis_mcp::money::parse_amount(&sc.amount, 2)
+                .map_err(|e| format!("scenario amount: {e:?}"))?;
+            if total != amount {
+                return Err(format!(
+                    "the scenario's bill lines total {total} cents, but the bill is {amount}"
+                ));
+            }
+            let payer_email = std::env::var("PAYPAL_PAYER_EMAIL")
+                .ok()
+                .filter(|e| !e.is_empty())
+                .ok_or("PAYPAL_VENDOR_CLIENT_ID is set, so PAYPAL_PAYER_EMAIL must be too")?;
+            eprintln!("portcullis: siege bills are PayPal invoices from the vendor's account");
+            Some(portcullis_mcp::siege::Billing {
+                invoicer: Arc::new(portcullis_executor::Invoicer::new(
+                    Endpoint::sandbox(),
+                    vendor,
+                )),
+                payer_email,
+            })
+        }
+        _ => None,
+    };
+
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
         let gate = Arc::new(Gatehouse::new(
@@ -239,6 +282,7 @@ fn serve() -> Result<(), String> {
                 hub.clone(),
                 audit.clone(),
                 Arc::new(unix_now),
+                chain.clone(),
                 portcullis_mcp::siege::SiegeConfig {
                     scenario: d.scenarios[0].clone(),
                     models: env_or("PORTCULLIS_SIEGE_MODELS", SIEGE_MODELS)
@@ -256,6 +300,7 @@ fn serve() -> Result<(), String> {
                         .unwrap_or(3),
                     shift: portcullis_demo::siege::SHIFT,
                     grace: portcullis_mcp::siege::GRACE,
+                    billing,
                 },
             )
         });

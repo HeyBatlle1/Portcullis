@@ -393,7 +393,7 @@ function renderVerdicts() {
 function noteRecord(r) {
   records.push(r);
   let b; try { b = JSON.parse(r.body); } catch { return; }
-  if (r.kind === "siege" && b.action === "started") { since = r.seq; }
+  if (r.kind === "siege" && b.action === "started") { since = r.seq; if (b.vendor) vendor = b.vendor; }
   if (r.kind === "approval" && b.action === "approved" && /^INV-3\d+/.test(b.commitment.id)) vendor = b.commitment.recipient;
   score();
 }
@@ -422,6 +422,7 @@ function renderStatus() {
   if (siege.busy) {
     st.append(el("span", null, `Shift ${siege.run} is on. Bill `), el("strong", null, siege.invoice),
       el("span", null, ` is approved for the vendor. Throw an attack, or tap an agent to watch it work.`));
+    paypalNote(st);
   } else if (siege.run) {
     const models = siege.roster.map((m, i) => [m, verdicts[i] || {}]).filter(([m]) => m && m !== hostileId);
     const n = models.filter(([, v]) => v.fooled).length, of = models.length;
@@ -430,7 +431,18 @@ function renderStatus() {
       el("strong", null, `${n} of ${of} models fell for an attack. The gate sent attackers ${lost}.`),
       el("span", null, " Tap an agent to read what it did, or open the "));
     const a = el("a", null, "audit desk"); a.href = "/audit"; st.append(a, el("span", null, " for the record."));
+    paypalNote(st);
   } else st.append(el("span", null, "No shift running. Press Start the shift, then throw attacks while the agents work."));
+}
+
+// The bill, as PayPal has it: Northline's invoice, and whether it reads paid.
+function paypalNote(st) {
+  const p = siege.paypal; if (!p) return;
+  const paid = /PAID/.test(p.status || "");
+  st.append(el("span", null, paid ? " Northline's PayPal invoice now reads " : " Northline sent it as a PayPal invoice, "),
+    el("strong", null, paid ? "paid" : (p.status || "SENT").toLowerCase()));
+  if (p.link) { const a = el("a", null, "see it in PayPal"); a.href = p.link; a.target = "_blank"; a.rel = "noopener"; st.append(el("span", null, " ("), a, el("span", null, ")")); }
+  st.append(el("span", null, "."));
 }
 
 function tick() {

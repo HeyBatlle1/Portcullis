@@ -154,6 +154,7 @@ async fn eight_agents_one_bill_one_payment_and_the_attack_stopped_eight_times() 
         hub.clone(),
         audit.clone(),
         clock.clone(),
+        chain.clone(),
         SiegeConfig {
             scenario,
             models: models.clone(),
@@ -165,6 +166,7 @@ async fn eight_agents_one_bill_one_payment_and_the_attack_stopped_eight_times() 
             per_visitor: 1,
             shift: Duration::from_secs(4),
             grace: Duration::from_secs(1),
+            billing: None,
         },
     );
     let console = Console::new(

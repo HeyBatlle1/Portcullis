@@ -13,9 +13,11 @@
 #![forbid(unsafe_code)]
 
 pub mod gatehouse;
+pub mod invoicing;
 pub mod paypal;
 pub mod rail;
 
 pub use gatehouse::{Event, Execution, Gatehouse, State, MAX_ATTEMPTS};
+pub use invoicing::Invoicer;
 pub use paypal::{Credentials, Endpoint, PayPal, SANDBOX};
 pub use rail::{step, ItemStatus, Observed, Rail, Step, Submitted};
