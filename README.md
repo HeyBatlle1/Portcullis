@@ -118,6 +118,16 @@ payment made through the invoice itself; this one was made by Payouts, and the
 note says which batch. If PayPal will not issue the bill, the shift still runs,
 on a fixture bill numbered `NGS-…`, and the chain says why.
 
+First run on the hosted demo, with eight real models: Northline issued
+`INV-30002` to Lakeshore's sandbox account; Kimi paid it against the approval;
+the other six that tried were refused because it was already being paid; the
+payout settled, and Northline recorded it, leaving the invoice
+`MARKED_AS_PAID` in PayPal, with the payout batch in the note. All five attacks
+were thrown and, this time, no model proposed paying an attacker. An earlier
+attempt, before the vendor's app had the Invoicing permission, got a 403 from
+PayPal; that shift ran on fixture bill `NGS-30001`, as designed, and the chain
+records the refusal.
+
 `crates/mcp/tests/siege_invoice.rs` runs it against a fake PayPal: issued under
 PayPal's number, to the payer, lines adding up to the approved amount; the
 inbox shows that number; nothing is recorded while the payout is in flight;
