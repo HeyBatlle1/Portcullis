@@ -33,6 +33,8 @@ export function buildData(records: AuditRecord[]): AgDataSourcesDefinition {
   const decisions: Record<string, unknown>[] = [];
   const payouts: Record<string, unknown>[] = [];
   const approvals: Record<string, unknown>[] = [];
+  // One row per bill the vendor sent through PayPal Invoicing, updated as later records arrive.
+  const invoices = new Map<string, Record<string, any>>();
 
   for (const r of records) {
     let b: any;
@@ -74,6 +76,44 @@ export function buildData(records: AuditRecord[]): AgDataSourcesDefinition {
         batch: e.batch_id ?? '',
         reason: e.reason ?? e.detail ?? '',
       });
+    } else if (r.kind === 'invoice') {
+      if (b.action === 'issued') {
+        invoices.set(b.number, {
+          seq: r.seq,
+          issuedAt: iso(r.at),
+          bill: b.number,
+          paypalId: b.paypal_id,
+          to: b.to ?? '',
+          amount: Number(b.amount ?? 0),
+          status: 'Sent, unpaid',
+          paidAt: null,
+          batch: '',
+          link: b.link ?? '',
+          paid: 0,
+        });
+      } else if (b.action === 'paid' || b.action === 'not_recorded') {
+        const row = invoices.get(b.number);
+        if (row) {
+          row.status = b.action === 'paid' ? `Paid (PayPal: ${b.status})` : `Paid out, not recorded: ${b.error ?? ''}`;
+          row.paidAt = iso(r.at);
+          row.batch = b.batch_id ?? '';
+          row.paid = b.action === 'paid' ? 1 : 0;
+        }
+      } else if (b.action === 'failed') {
+        invoices.set(`failed-${r.seq}`, {
+          seq: r.seq,
+          issuedAt: iso(r.at),
+          bill: `(siege ${b.run ?? '?'}: not issued)`,
+          paypalId: '',
+          to: '',
+          amount: 0,
+          status: `PayPal refused: ${b.error ?? ''}`,
+          paidAt: null,
+          batch: '',
+          link: '',
+          paid: 0,
+        });
+      }
     } else if (r.kind === 'approval') {
       const c = typeof b.commitment === 'object' ? b.commitment : null;
       approvals.push({
@@ -135,6 +175,28 @@ export function buildData(records: AuditRecord[]): AgDataSourcesDefinition {
         ]),
       },
       {
+        id: 'invoices',
+        name: 'PayPal invoices',
+        description:
+          'Bills the vendor, Northline Glass Supply, issued through PayPal Invoicing from its own PayPal account, and whether ' +
+          'the payment that settled them was recorded back against the invoice. "paid" is 1 or 0. A bill number here is the ' +
+          'same as "bill" in Decisions and Approvals.',
+        data: [...invoices.values()],
+        fields: fields([
+          ['seq', 'Record #', 'integerFormat'],
+          ['issuedAt', 'Issued at', 'dateTimeFormat'],
+          ['bill', 'Bill', 'textFormat'],
+          ['paypalId', 'PayPal invoice ID', 'textFormat'],
+          ['to', 'Billed to', 'textFormat'],
+          ['amount', 'Amount', 'currencyFormat'],
+          ['status', 'Status', 'textFormat'],
+          ['paidAt', 'Recorded paid at', 'dateTimeFormat'],
+          ['batch', 'Paid by payout batch', 'textFormat'],
+          ['link', 'PayPal link', 'textFormat', true],
+          ['paid', 'Paid', 'integerFormat'],
+        ]),
+      },
+      {
         id: 'approvals',
         name: 'Approvals',
         description: 'The owner approving or withdrawing a bill. Only an approved bill can be paid against.',
@@ -150,6 +212,12 @@ export function buildData(records: AuditRecord[]): AgDataSourcesDefinition {
       },
     ],
     relationships: [
+      {
+        id: 'decision-invoice',
+        source: { tableId: 'decisions', fieldId: 'bill' },
+        target: { tableId: 'invoices', fieldId: 'bill' },
+        type: 'many-to-one',
+      },
       {
         id: 'payout-decision',
         source: { tableId: 'payouts', fieldId: 'proposal' },

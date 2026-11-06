@@ -85,8 +85,20 @@ export const initialReport: AgReportState<any> = {
     },
     {
       id: 'payouts',
-      title: 'Payouts and approvals',
+      title: 'Bills, payouts and approvals',
       widgets: {
+        invoices: grid(
+          [
+            'invoices.issuedAt',
+            'invoices.bill',
+            'invoices.paypalId',
+            'invoices.amount',
+            'invoices.status',
+            'invoices.batch',
+            'invoices.paidAt',
+          ],
+          'Bills the vendor sent through PayPal',
+        ),
         steps: grid(['payouts.seq', 'payouts.at', 'payouts.step', 'payouts.batch', 'payouts.reason'], 'What PayPal did'),
         approvals: grid(
           ['approvals.seq', 'approvals.at', 'approvals.action', 'approvals.bill', 'approvals.amount', 'approvals.payee'],
@@ -94,8 +106,9 @@ export const initialReport: AgReportState<any> = {
         ),
       },
       widgetLayout: {
-        steps: at(0, 0, 24, 16),
-        approvals: at(0, 16, 24, 14),
+        invoices: at(0, 0, 24, 11),
+        steps: at(0, 11, 24, 15),
+        approvals: at(0, 26, 24, 14),
       },
     },
     {
