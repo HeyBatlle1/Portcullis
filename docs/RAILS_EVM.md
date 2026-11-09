@@ -70,12 +70,25 @@ wallet, with
 | A finalized receipt, status 1, with a `Transfer(float, to, value)` log matching the `Payment` | paid | settle |
 | `authorizationState(float, nonce) == true` and a matching `Transfer` found | paid (we lost the receipt) | settle |
 | `authorizationState == true` and no matching `Transfer` | the authorization was cancelled or used otherwise: **anomaly** | hold for a human |
-| `authorizationState == false` and the chain's time is past `validBefore` | definitely never paid | release |
-| A reverted receipt and `authorizationState == false` | definitely not paid | release |
+| `authorizationState == false` at a finalized block whose time is past `validBefore` | definitely never paid | release |
+| `authorizationState == false`, deadline not yet past at a finalized block | open | wait; send again if the node has lost it |
 | RPC error, timeout, or none of the above | unknown | change nothing, ask again |
 
 The deadline is what turns "unknown" into "no". PayPal can leave a payout
 pending indefinitely; a signed authorization dies on schedule.
+
+**Once signed, never refused.** A reverted transaction, a failed simulation, a
+transaction the node lost: none of these is "not paid". The signed
+authorization has left our hands (a node that simulated it has seen it), and
+anyone holding it can submit it until its deadline. Releasing the money early
+would let a payment the gate already gave back go through anyway. So the rail
+refuses only *before* signing (a paused token, a frozen payee or float, a float
+too small, a node on the wrong chain), and after signing the answer comes
+from the chain alone. Lost transactions are sent again, the same bytes, until
+the deadline.
+
+On Arbitrum Sepolia the `finalized` block trailed the newest by about 17
+minutes when this was written, so a settlement takes about that long.
 
 "Finalized" means the chain's `finalized` block tag, not a confirmation count
 picked by hand.
@@ -130,9 +143,12 @@ that is not case-folded.
 ## Phases
 
 0. This document.
-1. `EvmRail` in `crates/executor`, against a fake JSON-RPC in tests:
-   authorization building and EIP-712 signing, nonce derivation, the
-   observation table above. Mutation-checked.
+1. **Done.** `EvmRail` in `crates/executor/src/evm.rs`, tested against a fake
+   chain (`crates/executor/tests/evm_rail.rs`) that hashes and recovers the
+   EIP-712 signature independently and enforces what PYUSD enforces.
+   Mutation-checked: refusing after signing, never re-sending, judging the
+   deadline at `latest`, skipping preflight, counting an unexplained use as
+   paid, a fresh nonce per attempt, and a wrong EIP-712 prefix each fail a test.
 2. One live testnet payment with throwaway keys, read back from the chain.
 3. The MCP router: two ledgers, two policies, the console showing both.
 4. Safe as the treasury, with top-ups.

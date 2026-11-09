@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod evm;
 pub mod gatehouse;
 pub mod invoicing;
 pub mod paypal;
