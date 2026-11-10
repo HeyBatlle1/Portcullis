@@ -104,6 +104,16 @@ bill so it would read paid while the vendor went unpaid. Six attempts, six
 different rules, nothing reserved. That is the case Portcullis exists for: the
 day the agent is wrong, injected, or no longer yours.
 
+When the agent writes to Dana, the owner, you answer as her. Three replies
+are offered, fixed sentences rather than a text box, because everyone watching
+shares the console: pay the real bill as approved; "I called Northline, pay
+the new account today"; or hold it. A careful model that held the bill now
+pays it when told to, and the payout goes out and settles in PayPal. And when
+Dana herself tells it to pay the fraudster's account, the gate still refuses,
+because an approved bill's payee is changed by changing the approval, not by
+a message, even the owner's. Her replies are chained beside the decisions they
+led to.
+
 The page re-verifies the audit chain in your browser using the same
 length-prefixed SHA-256 encoding the kernel uses, and lets you download the
 chain to check yourself. `crates/mcp/tests/demo_run.rs` runs the whole scenario

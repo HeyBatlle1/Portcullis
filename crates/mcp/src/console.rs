@@ -43,8 +43,19 @@ const PAGE: &str = include_str!("../console/index.html");
 
 /// Seconds between demo runs, so one visitor cannot monopolise it.
 pub const RUN_COOLDOWN: u64 = 30;
-/// Hard wall-clock limit on one run.
-pub const RUN_TIMEOUT: Duration = Duration::from_secs(300);
+/// Hard wall-clock limit on one run, including the time the agent waits for
+/// the owner's replies.
+pub const RUN_TIMEOUT: Duration = Duration::from_secs(420);
+
+/// The open line to the agent of the run that is waiting on the owner.
+struct OwnerSlot {
+    run: u64,
+    invoice: String,
+    tx: tokio::sync::mpsc::Sender<String>,
+    /// Set when the agent says it is waiting, cleared by the reply: one
+    /// answer per wait, and none queued ahead for a later one.
+    waiting: bool,
+}
 
 /// Fan-out of everything the page shows. Audit records go out as they are
 /// chained; agent steps as they happen; state whenever either changes.
@@ -107,6 +118,8 @@ pub struct Demo {
     pub per_visitor: u32,
     /// Chat-completions endpoint; `portcullis_demo::OPENROUTER` in production.
     pub model_url: String,
+    /// How long an agent that reported waits for the owner's reply.
+    pub owner_wait: Duration,
 }
 
 #[derive(Default)]
@@ -127,6 +140,7 @@ pub struct Console<R: Rail + 'static> {
     demo: Option<Demo>,
     runs: Mutex<Runs>,
     visitors: crate::visitor::Quota,
+    owner: Mutex<Option<OwnerSlot>>,
 }
 
 impl<R: Rail + 'static> Console<R> {
@@ -147,6 +161,7 @@ impl<R: Rail + 'static> Console<R> {
             visitors: crate::visitor::Quota::new(demo.as_ref().map_or(0, |d| d.per_visitor)),
             demo,
             runs: Mutex::new(Runs::default()),
+            owner: Mutex::new(None),
         });
         // State goes out whenever the chain moves. Coalesced: a burst of
         // records produces one snapshot.
@@ -344,25 +359,49 @@ impl<R: Rail + 'static> Console<R> {
         };
         let inbox = scenario.inbox(run);
         let scenario_owned = scenario.clone();
+        // The owner's side: only a model agent reports and waits for her.
+        let line = (model != portcullis_demo::hostile::ID).then(|| {
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
+            *self.owner.lock().unwrap_or_else(|p| p.into_inner()) = Some(OwnerSlot {
+                run,
+                invoice: scenario.invoice(run),
+                tx,
+                waiting: false,
+            });
+            portcullis_demo::OwnerLine {
+                replies: rx,
+                wait: demo.owner_wait,
+            }
+        });
         tokio::spawn(async move {
             let hub = me.hub.clone();
-            let emit = move |e: AgentEvent| hub.agent(&e);
-            let fut: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
-                if cfg.model == portcullis_demo::hostile::ID {
-                    Box::pin(portcullis_demo::hostile::run(
-                        cfg,
-                        scenario_owned,
-                        emit.clone(),
-                    ))
-                } else {
-                    Box::pin(portcullis_demo::run(cfg, inbox, emit.clone()))
-                };
+            let line_of = me.clone();
+            let emit = move |e: AgentEvent| {
+                if let AgentEvent::AwaitingOwner { run: r, .. } = &e {
+                    let mut slot = line_of.owner.lock().unwrap_or_else(|p| p.into_inner());
+                    if let Some(s) = slot.as_mut().filter(|s| s.run == *r) {
+                        s.waiting = true;
+                    }
+                }
+                hub.agent(&e)
+            };
+            let fut: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> = match line {
+                None => Box::pin(portcullis_demo::hostile::run(
+                    cfg,
+                    scenario_owned,
+                    emit.clone(),
+                )),
+                Some(line) => {
+                    Box::pin(portcullis_demo::run_talking(cfg, inbox, line, emit.clone()))
+                }
+            };
             if tokio::time::timeout(RUN_TIMEOUT, fut).await.is_err() {
                 emit(AgentEvent::Failed {
                     run,
                     error: "run timed out".into(),
                 });
             }
+            *me.owner.lock().unwrap_or_else(|p| p.into_inner()) = None;
             me.runs.lock().unwrap_or_else(|p| p.into_inner()).busy = false;
             me.hub.send(json!({ "ch": "demo", "demo": me.demo_info() }));
         });
@@ -434,6 +473,45 @@ impl<R: Rail + 'static> Console<R> {
 }
 
 #[derive(Deserialize)]
+struct ReplyReq {
+    run: u64,
+    reply: portcullis_demo::OwnerReply,
+}
+
+/// The owner answers the agent of the running run. The reply is one of three
+/// fixed sentences, and it reaches only the agent: what the agent then
+/// proposes goes to the gate like everything else. Recorded in the chain, so
+/// the record shows what the owner said as well as what the gate decided.
+async fn reply<R: Rail + 'static>(
+    State(c): State<Arc<Console<R>>>,
+    Json(r): Json<ReplyReq>,
+) -> Response {
+    let sent = {
+        let mut slot = c.owner.lock().unwrap_or_else(|p| p.into_inner());
+        match slot.as_mut().filter(|s| s.run == r.run && s.waiting) {
+            None => Err("the agent is not waiting for Dana right now"),
+            Some(s) => {
+                let text = r.reply.text(&s.invoice);
+                s.waiting = false;
+                s.tx.try_send(text.clone())
+                    .map(|()| text)
+                    .map_err(|_| "the agent is not waiting for Dana right now")
+            }
+        }
+    };
+    match sent {
+        Ok(text) => {
+            (c.audit)(json!({
+                "kind": "owner", "at": (c.clock)(), "action": "replied", "by": "owner",
+                "run": r.run, "reply": r.reply, "text": text,
+            }));
+            (StatusCode::ACCEPTED, Json(json!({ "sent": text }))).into_response()
+        }
+        Err(e) => (StatusCode::CONFLICT, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
 struct RunReq {
     #[serde(default)]
     model: Option<String>,
@@ -452,6 +530,7 @@ pub fn routes<R: Rail + 'static>(console: Arc<Console<R>>) -> Router {
         .route("/console/verify", get(verify::<R>))
         .route("/console/audit.jsonl", get(export::<R>))
         .route("/console/run", post(run::<R>))
+        .route("/console/reply", post(reply::<R>))
         .with_state(console)
 }
 

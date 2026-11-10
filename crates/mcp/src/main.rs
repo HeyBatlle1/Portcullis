@@ -19,6 +19,7 @@
 //! | `PORTCULLIS_DEMO_MODELS`   | models offered on the console, comma separated    |
 //! | `PORTCULLIS_DEMO_DAILY_RUNS` | demo runs allowed per UTC day (default 30)      |
 //! | `PORTCULLIS_DEMO_PER_VISITOR` | demo runs one visitor may start per day (default 5) |
+//! | `PORTCULLIS_DEMO_OWNER_WAIT` | seconds the agent waits for Dana's reply after reporting (default 90) |
 //! | `PORTCULLIS_SIEGE_MODELS` | models a siege slot may hold                    |
 //! | `PORTCULLIS_SIEGE_DAILY`   | sieges allowed per UTC day (default 15)          |
 //! | `PORTCULLIS_SIEGE_PER_VISITOR` | sieges one visitor may start per day (default 3) |
@@ -183,6 +184,11 @@ fn serve() -> Result<(), String> {
                 per_visitor: env_or("PORTCULLIS_DEMO_PER_VISITOR", "5")
                     .parse()
                     .map_err(|_| "bad PORTCULLIS_DEMO_PER_VISITOR")?,
+                owner_wait: Duration::from_secs(
+                    env_or("PORTCULLIS_DEMO_OWNER_WAIT", "90")
+                        .parse()
+                        .map_err(|_| "bad PORTCULLIS_DEMO_OWNER_WAIT")?,
+                ),
             })
         }
     };

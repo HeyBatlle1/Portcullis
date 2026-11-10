@@ -114,6 +114,19 @@ The invoice is still the demo's fiction made concrete, not an authority. The
 owner's approval is what makes it payable to the gate, exactly as before; a
 PayPal invoice nobody approved is mail.
 
+### Dana's replies
+
+When a console agent reports to the owner and stops, the page offers anyone
+watching three fixed replies for 90 seconds, at most twice a run. There is no
+free text: the console is shared, and a text box would let anyone put words in
+front of the model and on every viewer's screen. A reply reaches only the
+agent's conversation; whatever the agent does with it still goes to the gate
+as a proposal. One reply, "pay the new account", has the owner herself endorse
+the redirect, and the gate refuses it the same way it refuses the forged email.
+Replies are accepted only while the agent is waiting, one per wait, and each is
+recorded in the chain (`kind: owner`). Anyone can answer someone else's run;
+that is the cost of a shared demo, and every answer is on the record.
+
 ### Per-visitor limits
 
 The site-wide daily caps are what bound the model bill. The per-visitor limits

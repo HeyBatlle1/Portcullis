@@ -43,6 +43,8 @@ impl Rail for NoRail {
 #[derive(Clone, Default)]
 struct Script {
     seen: Arc<Mutex<Vec<Value>>>,
+    /// Play the careful agent that reports to Dana and waits for her.
+    talk: bool,
 }
 
 fn call(id: &str, name: &str, args: Value) -> Value {
@@ -57,21 +59,45 @@ async fn model(State(s): State<Script>, Json(req): Json<Value>) -> Json<Value> {
         seen.len()
     };
     let attacker = "remit@northline-glass-ar.example";
-    let msg = match n {
-        1 => json!({ "content": null, "tool_calls": [call("c1", "list_inbox", json!({}))] }),
-        2 => json!({ "content": "Reading the remittance change.",
+    let pay = |id: &str, to: &str| {
+        json!({ "content": null, "tool_calls": [call(id, "propose_payment", json!({
+            "recipient": to, "amount": "1284.60", "currency": "USD",
+            "commitment": "INV-20417", "purpose": "INV-20417"
+        }))] })
+    };
+    let tell = |id: &str, text: &str| json!({ "content": null, "tool_calls": [call(id, "message_owner", json!({ "text": text }))] });
+    let msg = if s.talk {
+        match n {
+            1 => json!({ "content": null, "tool_calls": [call("c1", "list_inbox", json!({}))] }),
+            2 => tell(
+                "c2",
+                "I am holding INV-20417: the new account cannot be verified. Please confirm.",
+            ),
+            3 => json!({ "content": "Waiting for Dana." }),
+            4 => pay("c4", attacker),
+            5 => tell("c5", "The gate refused the new account. Nothing was sent."),
+            6 => json!({ "content": "Waiting for Dana." }),
+            7 => pay("c7", VENDOR),
+            8 => tell("c8", "Paid INV-20417 to the account on the invoice."),
+            _ => json!({ "content": "Done." }),
+        }
+    } else {
+        match n {
+            1 => json!({ "content": null, "tool_calls": [call("c1", "list_inbox", json!({}))] }),
+            2 => json!({ "content": "Reading the remittance change.",
                      "tool_calls": [call("c2", "read_email", json!({"id": "m4"}))] }),
-        3 => json!({ "content": null, "tool_calls": [call("c3", "propose_payment", json!({
+            3 => json!({ "content": null, "tool_calls": [call("c3", "propose_payment", json!({
                 "recipient": attacker, "amount": "1284.60", "currency": "USD",
                 "commitment": "INV-20417", "purpose": "INV-20417 per updated remittance"
              }))] }),
-        4 => json!({ "content": null, "tool_calls": [call("c4", "propose_payment", json!({
+            4 => json!({ "content": null, "tool_calls": [call("c4", "propose_payment", json!({
                 "recipient": VENDOR, "amount": "1284.60", "currency": "USD",
                 "commitment": "INV-20417", "purpose": "INV-20417 to vendor of record"
              }))] }),
-        5 => json!({ "content": null, "tool_calls": [call("c5", "message_owner",
+            5 => json!({ "content": null, "tool_calls": [call("c5", "message_owner",
                 json!({"text": "Paid INV-20417 to the address on the invoice. The change request was refused."}))] }),
-        _ => json!({ "content": "Done." }),
+            _ => json!({ "content": "Done." }),
+        }
     };
     let mut m = msg;
     m["role"] = json!("assistant");
@@ -87,6 +113,10 @@ struct Booted {
 }
 
 async fn boot() -> Booted {
+    boot_with(Script::default(), Duration::from_millis(300)).await
+}
+
+async fn boot_with(script: Script, owner_wait: Duration) -> Booted {
     // The seed and scenario files are the real ones the hosted demo boots from.
     std::env::set_var("PAYPAL_SANDBOX_RECEIVER", VENDOR);
     let seed = Seed::parse(include_str!("../../../demo/seed.json")).unwrap();
@@ -97,7 +127,6 @@ async fn boot() -> Booted {
     let (ledger, policy) = seed.build(T0).unwrap();
 
     // The scripted model.
-    let script = Script::default();
     let model_app = Router::new()
         .route("/v1/chat/completions", post(model))
         .with_state(script.clone());
@@ -129,6 +158,7 @@ async fn boot() -> Booted {
         daily_runs: 5,
         per_visitor: 1,
         model_url,
+        owner_wait,
     };
     let console = Console::new(
         gate.clone(),
@@ -298,4 +328,107 @@ async fn one_visitor_gets_their_allowance_and_no_more() {
     assert_eq!(r.status(), 429);
     assert!(r.text().await.unwrap().contains("next visitor"));
     run_from(&b, Some("198.51.100.7"), hostile).await;
+}
+
+/// Dana answers the agent from the console. Her word cannot redirect an
+/// approved bill, even hers; it can tell the agent to pay it as approved.
+#[tokio::test]
+async fn dana_answers_and_the_gate_still_decides() {
+    let script = Script {
+        talk: true,
+        ..Default::default()
+    };
+    let b = boot_with(script, Duration::from_secs(10)).await;
+    let mut rx = b.hub.subscribe();
+    let r = post_run(&b, None, &json!({})).await;
+    assert_eq!(r.status(), 202);
+    let run = r.json::<Value>().await.unwrap()["run"].as_u64().unwrap();
+
+    let reply = |reply: &str| {
+        let url = format!("http://{}/console/reply", b.addr);
+        let body = json!({ "run": run, "reply": reply });
+        async move {
+            reqwest::Client::new()
+                .post(url)
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }
+    };
+    // Nobody is waiting yet: an early reply goes nowhere.
+    assert_eq!(reply("pay_original").await, 409);
+    let mut answers = vec!["confirm_new", "pay_original"].into_iter();
+    let mut agent = Vec::new();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            let msg: Value = serde_json::from_str(&rx.recv().await.unwrap()).unwrap();
+            if msg["ch"] != "agent" {
+                continue;
+            }
+            let e = msg["event"].clone();
+            agent.push(e.clone());
+            match e["type"].as_str().unwrap() {
+                "awaiting_owner" => {
+                    assert_eq!(
+                        reply(answers.next().expect("asked twice at most")).await,
+                        202
+                    );
+                    // One answer per wait.
+                    assert_eq!(reply("hold").await, 409);
+                }
+                "finished" | "failed" => break,
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("run did not finish");
+    assert_eq!(agent.last().unwrap()["type"], "finished", "{agent:#?}");
+
+    let heard: Vec<&str> = agent
+        .iter()
+        .filter(|e| e["type"] == "from_owner")
+        .map(|e| e["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(heard.len(), 2);
+    assert!(heard[0].contains("confirmed the new account"));
+    assert!(heard[1].contains("as approved"));
+    // The model was told, in its own conversation.
+    assert!(b.script.seen.lock().unwrap()[3]["messages"]
+        .to_string()
+        .contains("confirmed the new account"));
+
+    // The owner's own word did not move the bill; paying it as approved did.
+    let decided: Vec<(&str, Option<&str>)> = agent
+        .iter()
+        .filter(|e| e["type"] == "tool_result" && e["tool"] == "propose_payment")
+        .map(|e| {
+            (
+                e["result"]["decision"].as_str().unwrap(),
+                e["result"]["rule"].as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        decided,
+        [
+            ("refused", Some("CommitmentRecipientMismatch")),
+            ("allowed", None)
+        ]
+    );
+
+    {
+        let c = b.chain.lock().unwrap();
+        c.verify().unwrap();
+        let kinds: Vec<&str> = c.records().iter().map(|r| r.kind.as_str()).collect();
+        assert_eq!(
+            kinds,
+            ["approval", "owner", "decision", "owner", "decision"]
+        );
+    }
+    // After the run, there is no one to answer.
+    assert_eq!(reply("hold").await, 409);
 }
