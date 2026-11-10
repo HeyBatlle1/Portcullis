@@ -73,7 +73,20 @@ fn paypal(f: Fake) -> Router {
         )
         .route(
             "/v2/invoicing/generate-next-invoice-number",
-            post(|| async { Json(json!({ "invoice_number": "INV-30007" })) }),
+            // PayPal answers 415 to this bodiless POST when it carries no
+            // JSON content type (seen live on 2026-11-10), so the fake does too.
+            post(|h: axum::http::HeaderMap| async move {
+                if h.get("content-type").and_then(|v| v.to_str().ok()) != Some("application/json") {
+                    return (
+                        axum::http::StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                        Json(json!({ "message": "The request payload is not supported" })),
+                    );
+                }
+                (
+                    axum::http::StatusCode::OK,
+                    Json(json!({ "invoice_number": "INV-30007" })),
+                )
+            }),
         )
         .route(
             "/v2/invoicing/invoices",

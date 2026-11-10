@@ -202,9 +202,12 @@ impl Invoicer {
             if let Some(k) = key {
                 req = req.header("PayPal-Request-Id", k);
             }
-            if let Some(b) = body {
-                req = req.json(b);
-            }
+            req = match body {
+                Some(b) => req.json(b),
+                // A bodiless POST (generate-next-invoice-number) still has to
+                // say JSON: PayPal answers 415 without it, some of the time.
+                None => req.header(reqwest::header::CONTENT_TYPE, "application/json"),
+            };
             let r = req.send().await.map_err(|e| format!("transport: {e}"))?;
             let status = r.status().as_u16();
             let text = r.text().await.unwrap_or_default();
