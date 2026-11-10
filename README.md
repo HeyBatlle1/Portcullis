@@ -2,6 +2,9 @@
 
 **Policy containment for agents that spend money.**
 
+Built on PayPal: Payouts, Invoicing and OAuth on the PayPal sandbox, with AI
+agents from eight labs reaching it over MCP.
+
 An agent connected to Portcullis can *propose* a payment. It cannot authorize one.
 
 The decision is made by a deterministic policy kernel that holds no model, reads no
