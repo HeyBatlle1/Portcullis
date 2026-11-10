@@ -79,7 +79,9 @@ impl RuleId {
             RuleId::CommitmentWindowClosed => "commitment window is not open",
             RuleId::CommitmentRecipientMismatch => "commitment names a different recipient",
             RuleId::CommitmentAmountExceeded => "over the amount this commitment earmarked",
-            RuleId::CommitmentAmountShort => "less than the bill: a bill is paid in full or not at all",
+            RuleId::CommitmentAmountShort => {
+                "less than the bill: a bill is paid in full or not at all"
+            }
             RuleId::CommitmentRequired => "only approved bills may be paid",
         }
     }

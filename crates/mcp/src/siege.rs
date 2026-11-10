@@ -605,6 +605,15 @@ impl<R: Rail + 'static> Siege<R> {
             },
         };
         self.gate.schedule(c.clone()).await?;
+        // Keep the demo payable forever: the owner tops the account up for
+        // each bill they approve, and the chain records it.
+        let topped = self.gate.fund_open_bills(now).await;
+        if topped > 0 {
+            (self.audit)(json!({
+                "kind": "funding", "at": now, "action": "topped_up", "by": "owner",
+                "minor": topped, "for": c.id,
+            }));
+        }
         (self.audit)(
             json!({ "kind": "approval", "at": now, "action": "approved", "by": "owner", "commitment": c }),
         );

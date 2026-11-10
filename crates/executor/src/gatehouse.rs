@@ -16,7 +16,7 @@
 use crate::rail::{Observed, Rail, Step, Submitted};
 use portcullis_kernel::{
     adjudicate, Adjudication, Commitment, CommitmentId, CommitmentState, Ledger, NotExecutable,
-    Policy, Proposal, ProposalId, Timestamp,
+    Policy, Proposal, ProposalId, Rule, Timestamp,
 };
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
@@ -153,6 +153,32 @@ impl<R: Rail> Gatehouse<R> {
         }
         s.ledger.commitments.push(c);
         Ok(())
+    }
+
+    /// The owner funds the account for the bills they approved: credits
+    /// whatever the balance is short of the floor plus every open bill, and
+    /// returns that shortfall (0 when nothing was needed). An operator path,
+    /// like `schedule`: nothing on the agent's surface reaches it, and it adds
+    /// only what approved bills will draw, so it opens no room for
+    /// discretionary spending.
+    pub async fn fund_open_bills(&self, now: Timestamp) -> u64 {
+        let mut s = self.state.lock().await;
+        let floor = s
+            .policy
+            .rules
+            .iter()
+            .filter_map(|r| match r {
+                Rule::BalanceFloor { minor } => Some(*minor),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+        let needed = floor.saturating_add(s.ledger.encumbered(now));
+        let short = needed.saturating_sub(s.ledger.unreserved());
+        if short > 0 {
+            s.ledger.credit(short);
+        }
+        short
     }
 
     /// A human withdrew an approval that was never drawn on. Only an `Open`

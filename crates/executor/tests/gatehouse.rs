@@ -367,3 +367,35 @@ async fn only_an_undrawn_approval_can_be_withdrawn() {
     );
     assert_eq!(g.with_state(|s| s.ledger.encumbered(T0)).await, 0);
 }
+
+#[tokio::test]
+async fn the_owner_funds_each_approved_bill_so_the_demo_never_runs_dry() {
+    // The hosted demo's shape, scaled down: a balance, a floor, and one bill
+    // after another. Without a top-up the fifth bill would breach the floor.
+    let mut p = policy();
+    p.rules = vec![Rule::BalanceFloor { minor: 2_500 }];
+    let mut rail = FakeRail::default();
+    for _ in 0..20 {
+        rail = rail.on_submit(accepted()).on_observe(ItemStatus::Success);
+    }
+    let g = Gatehouse::new(Ledger::new(AssetId::usd(), 10_000), p, rail);
+
+    let mut topped = 0;
+    for i in 0..20 {
+        let id = format!("INV-{i}");
+        g.schedule(invoice(&id, 1_285)).await.unwrap();
+        topped += g.fund_open_bills(T0).await;
+        assert_eq!(g.fund_open_bills(T0).await, 0, "a second call adds nothing");
+
+        let mut pay = proposal(&format!("p{i}"), VENDOR, 1_285);
+        pay.against = Some(CommitmentId::new(&id));
+        let d = g.propose(&pay, T0).await;
+        assert!(d.decision().is_allowed(), "bill {i}: {:?}", d.decision());
+        g.drive(T0 + 1).await;
+        g.drive(T0 + 60).await;
+    }
+    // Exactly what twenty bills drew beyond what the floor left free.
+    assert_eq!(topped, 20 * 1_285 - (10_000 - 2_500));
+    // And no more: once the bills are paid, nothing is free above the floor.
+    assert_eq!(money(&g).await, (2_500, 0));
+}
