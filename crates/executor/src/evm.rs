@@ -332,6 +332,13 @@ impl EvmRail {
         self.cfg.relayer.address()
     }
 
+    /// The relayer transaction that last carried a batch's authorization, for
+    /// an explorer link. `None` until one has been accepted by the node.
+    pub fn relay_tx(&self, batch_id: &str) -> Option<B256> {
+        let nonce = batch_id.parse::<B256>().ok()?;
+        self.mem().sent.get(&nonce)?.relay_tx
+    }
+
     fn mem(&self) -> std::sync::MutexGuard<'_, Memory> {
         self.memory.lock().unwrap_or_else(|p| p.into_inner())
     }
