@@ -159,8 +159,13 @@ fn check_commitment(
     if !c.window.contains(now) {
         return Err(RuleId::CommitmentWindowClosed);
     }
+    // A draw consumes the bill whole, so it must pay the bill whole. Paying
+    // less would close a bill the vendor is still owed the rest of.
     if minor > c.earmarked {
         return Err(RuleId::CommitmentAmountExceeded);
+    }
+    if minor < c.earmarked {
+        return Err(RuleId::CommitmentAmountShort);
     }
     Ok(())
 }

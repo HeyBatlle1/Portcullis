@@ -228,6 +228,15 @@ fn naming_a_commitment_is_an_assertion_that_must_hold() {
         Some(RuleId::CommitmentAmountExceeded)
     );
 
+    // A cent against a 900.00 bill would consume it: the bill would read
+    // paid, the vendor would be owed 899.99, and nothing could pay it.
+    let mut too_little = proposal("landlord@example.com", 1);
+    too_little.against = Some(CommitmentId::new("c1"));
+    assert_eq!(
+        decide(&l, &p, &too_little, T0).refused_by(),
+        Some(RuleId::CommitmentAmountShort)
+    );
+
     let mut missing = proposal("landlord@example.com", 1_000);
     missing.against = Some(CommitmentId::new("nope"));
     assert_eq!(

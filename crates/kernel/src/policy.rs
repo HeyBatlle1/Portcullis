@@ -49,6 +49,10 @@ pub enum RuleId {
     CommitmentRecipientMismatch,
     /// A commitment was named, but the proposal is larger than its earmark.
     CommitmentAmountExceeded,
+    /// A commitment was named, but the proposal is smaller than its earmark.
+    /// A draw consumes the commitment, so a short payment would close a bill
+    /// that is still owed.
+    CommitmentAmountShort,
     /// The policy pays approved bills only, and this proposal matched none.
     CommitmentRequired,
 }
@@ -75,6 +79,7 @@ impl RuleId {
             RuleId::CommitmentWindowClosed => "commitment window is not open",
             RuleId::CommitmentRecipientMismatch => "commitment names a different recipient",
             RuleId::CommitmentAmountExceeded => "over the amount this commitment earmarked",
+            RuleId::CommitmentAmountShort => "less than the bill: a bill is paid in full or not at all",
             RuleId::CommitmentRequired => "only approved bills may be paid",
         }
     }
