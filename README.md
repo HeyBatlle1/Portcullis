@@ -35,6 +35,24 @@ Hosted on the PayPal sandbox, free to use, no login:
 Runs and shifts are capped (one at a time, a cooldown, a daily limit, and a few
 per visitor per day) because each one moves real sandbox money and calls models.
 
+## What it does with PayPal
+
+Three PayPal REST APIs, each with its own OAuth client: **Payouts** sends every
+payment the gate allows, from the payer's sandbox account, keyed by
+`PayPal-Request-Id` so a retry can never pay twice; **Invoicing** lets the
+vendor, a separate sandbox business account, issue the bill and later record
+it paid against the payout batch that paid it; and the payout status is read
+back until PayPal gives a definitive answer, which is the only thing that
+settles or releases the money.
+
+PayPal's [Agent Toolkit](https://github.com/paypal/agent-toolkit) and MCP
+server give an agent PayPal's API directly (invoices, payments, subscriptions),
+with the app's credentials behind it. Portcullis is the other half: the agent
+gets four tools (`propose_payment`, `list_commitments`, `get_proposal`,
+`get_balance`), and PayPal is only ever called by the gate, after a policy the
+agent cannot see has allowed the exact payee and amount. Any MCP client that
+can connect to PayPal's MCP server connects to Portcullis the same way.
+
 ## Why this is different
 
 Agent wallets today give the agent a key and attach limits to it. That defends against
@@ -49,8 +67,8 @@ it disposes.
 
 | crate | what it is | touches |
 |---|---|---|
-| `crates/kernel` | `decide()` and `adjudicate()`: policy, ledger, the signed amendment log | nothing — no I/O, no clock, no randomness (CI enforces it) |
-| `crates/executor` | turns adjudications into PayPal sandbox payouts; only a definitive answer from the rail releases money | the PayPal sandbox, and only the sandbox |
+| `crates/kernel` | `decide()` and `adjudicate()`: policy, ledger, and a hash-chained, signature-checked, timelocked policy amendment log (built and tested in the kernel; the hosted server does not use it yet and loads its policy from `demo/seed.json`) | nothing — no I/O, no clock, no randomness (CI enforces it) |
+| `crates/executor` | turns adjudications into PayPal sandbox payouts, and issues and settles the vendor's PayPal invoices; only a definitive answer from the rail releases money | the PayPal sandbox, and only the sandbox |
 | `crates/mcp` | the agent's entire surface: four tools over MCP Streamable HTTP; and, separately, the read-only console at `/console` | the network, behind per-agent tokens |
 | `crates/demo` | the demo agent: an accounts-payable clerk driven by a model on OpenRouter | `/mcp`, over HTTP, with its own token. It does not depend on the kernel or the executor |
 | `studio/` | the audit desk: AG Studio 3 over the audit chain, with custom widgets and agents (built into `crates/mcp/studio-dist`, served at `/audit`) | read-only: the chain, the gate's state, and a capped model proxy |
@@ -165,6 +183,15 @@ were refused. Again $0.00 went out. These are single runs, not a benchmark:
 which models fall for which email changes from one shift to the next. What does
 not change is the answer from the gate.
 
+A review of the code by a second team of models found three more, fixed on
+2026-11-10, each with a test that fails without the fix: paying one cent
+against a named bill closed the bill as paid (a bill is now paid in full or
+refused, `CommitmentAmountShort`); the demo account would have hit its balance
+floor after twelve bills (the owner now funds each bill they approve, and the
+chain records it); and the audit desk's model proxy took 2 MB requests, had no
+per-visitor limit, and passed server-side tools like web search through on our
+key.
+
 The first run also found two bugs of ours, both fixed with tests: `list_commitments`
 hid a bill once it had been paid, so three agents told the owner it had never
 been approved; and one model stopped working three turns in. An agent that
@@ -217,6 +244,19 @@ cargo run -p portcullis-mcp -- serve       # set OPENROUTER_API_KEY too to enabl
 
 Any MCP client connects the same way it would to PayPal's own MCP server:
 `npx mcp-remote https://<host>/mcp --header "Authorization: Bearer <token>"`.
+
+## Next: a second rail
+
+The gate does not care which model is asking, and it should not care what the
+money moves on either. Branch `rails/evm` adds a second `Rail`: PayPal USD
+(PYUSD) on an Ethereum testnet, paid by EIP-3009 `transferWithAuthorization`
+with the nonce derived from the proposal id, so the token contract itself
+refuses a second payment. A float wallet holds only what the gate may spend and
+signs; a relayer pays gas. On 2026-11-10 it made its first live payment on
+Ethereum Sepolia: the gate allowed 12.84 PYUSD, the transfer was mined, the
+executor waited for the block to be finalized before calling it paid (13½
+minutes), and resubmitting returned the same payment and sent nothing. It is
+not on `main` or in the hosted demo; see `docs/RAILS_EVM.md` on that branch.
 
 ## Status
 
