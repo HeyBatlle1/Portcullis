@@ -26,6 +26,7 @@
 //! | `AG_STUDIO_LICENSE`        | AG Studio licence key (optional; watermark without) |
 //! | `PORTCULLIS_STUDIO_MODELS` | models the audit desk's agents may use            |
 //! | `PORTCULLIS_STUDIO_DAILY_CALLS` | audit-desk model calls per UTC day (default 400) |
+//! | `PORTCULLIS_STUDIO_PER_VISITOR` | audit-desk model calls one visitor may make per day (default 60) |
 
 use portcullis_executor::{paypal::unix_now, Credentials, Endpoint, Gatehouse, PayPal};
 use portcullis_mcp::{
@@ -216,6 +217,12 @@ fn serve() -> Result<(), String> {
             .map_err(|_| "bad PORTCULLIS_STUDIO_DAILY_CALLS")?,
         http: portcullis_mcp::studio::client(),
         budget: Default::default(),
+        per_visitor: portcullis_mcp::visitor::Quota::new(
+            env_or("PORTCULLIS_STUDIO_PER_VISITOR", "60")
+                .parse()
+                .map_err(|_| "bad PORTCULLIS_STUDIO_PER_VISITOR")?,
+        ),
+        upstream: portcullis_mcp::studio::RESPONSES.to_string(),
     });
 
     // The vendor's own PayPal app, if configured: siege bills become real

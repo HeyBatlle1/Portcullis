@@ -6,15 +6,16 @@
 //!
 //! Its AI agents run in the browser through AG Studio's Agent Framework. They
 //! reach a model through [`proxy`], which holds the key, allows only the
-//! configured models, caps output, and counts calls against a daily budget.
+//! configured models and their own function tools, caps the request and the
+//! output, and counts calls per visitor and against a site-wide daily budget.
 //! The agents' tools are Studio's own (read the data, build widgets) plus a
 //! chain check; none of them can reach `/mcp`, so the agents that explain the
 //! record have no path to the money the record describes.
 
 use axum::{
     body::Body,
-    extract::State,
-    http::{header, StatusCode},
+    extract::{DefaultBodyLimit, State},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -29,6 +30,17 @@ pub const RESPONSES: &str = "https://openrouter.ai/api/v1/responses";
 /// Ceiling on one model turn, whatever the page asks for.
 pub const MAX_OUTPUT_TOKENS: u64 = 4_000;
 
+/// Ceiling on one request to the model, which bounds the input tokens a call
+/// can spend. The desk's real turns (instructions, tool schemas, a page of
+/// chain records) are well under it; the default axum limit was 2 MB.
+pub const MAX_REQUEST_BYTES: usize = 512 * 1024;
+
+/// Top-level fields that would let the page reach past the model and tools
+/// it was given: OpenRouter's `models` (a fallback list, which would bypass
+/// the allowlist), `plugins` and `web_search_options` (server-side web
+/// search, billed to us), and `route`.
+const STRIPPED: &[&str] = &["models", "plugins", "web_search_options", "route"];
+
 pub struct Studio {
     /// Built app: `index.html` plus `assets/`.
     pub dir: std::path::PathBuf,
@@ -41,6 +53,10 @@ pub struct Studio {
     pub daily_calls: u32,
     pub http: reqwest::Client,
     pub budget: Mutex<(u64, u32)>,
+    /// Model calls allowed per visitor per UTC day; see [`crate::visitor`].
+    pub per_visitor: crate::visitor::Quota,
+    /// Where model calls go: [`RESPONSES`], or a fake in tests.
+    pub upstream: String,
 }
 
 impl Studio {
@@ -69,7 +85,10 @@ pub fn routes(studio: Arc<Studio>) -> Router {
         .route("/audit/", get(index))
         .route("/audit/assets/{*file}", get(asset))
         .route("/audit/config", get(config))
-        .route("/audit/ai/responses", post(proxy))
+        .route(
+            "/audit/ai/responses",
+            post(proxy).layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES)),
+        )
         // The app is one large script; gzip takes it from about 5.7 MB to 1.6 MB.
         // Event streams are left alone (tower-http does not compress them).
         .layer(tower_http::compression::CompressionLayer::new())
@@ -132,9 +151,27 @@ fn error(code: StatusCode, message: &str) -> Response {
     (code, Json(json!({ "error": { "message": message } }))).into_response()
 }
 
+/// Keep only what the desk's agents need: their own function tools. A
+/// server-side tool (web search, file search, code interpreter) runs on the
+/// provider's side, on our key, outside anything this page shows.
+pub fn sanitize(body: &mut Value) {
+    if let Some(o) = body.as_object_mut() {
+        for k in STRIPPED {
+            o.remove(*k);
+        }
+    }
+    if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
+        tools.retain(|t| t["type"] == "function");
+    }
+}
+
 /// Forward one Responses API call to the model, with the key added and the
 /// request bounded. The reply streams straight back.
-async fn proxy(State(s): State<Arc<Studio>>, Json(mut body): Json<Value>) -> Response {
+async fn proxy(
+    State(s): State<Arc<Studio>>,
+    headers: HeaderMap,
+    Json(mut body): Json<Value>,
+) -> Response {
     let Some(key) = s.openrouter_key.as_deref().filter(|_| s.ai_enabled()) else {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -149,9 +186,19 @@ async fn proxy(State(s): State<Arc<Studio>>, Json(mut body): Json<Value>) -> Res
         return error(StatusCode::BAD_REQUEST, "that model is not offered here");
     }
     let now = portcullis_executor::paypal::unix_now();
+    if !s
+        .per_visitor
+        .take(crate::visitor::client(&headers).as_deref(), now)
+    {
+        return error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "you have used today's questions for the audit desk; try again tomorrow",
+        );
+    }
     if let Err(e) = s.spend(now) {
         return error(StatusCode::TOO_MANY_REQUESTS, &e);
     }
+    sanitize(&mut body);
     body["model"] = json!(model);
     let asked = body["max_output_tokens"]
         .as_u64()
@@ -160,7 +207,7 @@ async fn proxy(State(s): State<Arc<Studio>>, Json(mut body): Json<Value>) -> Res
 
     let upstream = s
         .http
-        .post(RESPONSES)
+        .post(&s.upstream)
         .bearer_auth(key)
         .header("X-Title", "Portcullis audit desk")
         .json(&body)

@@ -21,3 +21,13 @@ services:
         sync: false
       - key: PORTCULLIS_ALLOWED_HOSTS     # the service's public hostname
         sync: false
+      - key: PAYPAL_PAYER_EMAIL           # optional
+        sync: false
+      - key: PAYPAL_VENDOR_CLIENT_ID      # the vendor's sandbox app, for invoices
+        sync: false
+      - key: PAYPAL_VENDOR_CLIENT_SECRET
+        sync: false
+      - key: OPENROUTER_API_KEY           # the demo, siege and audit-desk agents
+        sync: false
+      - key: AG_STUDIO_LICENSE            # optional; the desk shows a watermark without
+        sync: false

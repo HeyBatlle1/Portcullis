@@ -148,9 +148,16 @@ What it reads is the audit chain, which includes text the payment agent wrote
 
 Their model calls go through `/audit/ai/responses`, which is open to anyone
 with the URL, like `/console/run`, and bounded the same way: the key stays on
-the server, only configured models are accepted, output per turn is capped, and
-calls count against a daily budget shared by every viewer. Someone can use up
-that budget; they cannot use the key for anything else.
+the server, only configured models are accepted, a request is capped at 512 KB
+and its output per turn at 4,000 tokens, each visitor gets 60 calls a day, and
+all calls count against a daily budget shared by every viewer. The proxy also
+removes what would reach past the model it was given: every tool that is not a
+plain function (server-side web search, code interpreter, file search, all run
+and billed on the provider's side), and OpenRouter's `models` fallback list,
+`plugins` and `web_search_options`. Someone can use up the budget; they cannot
+use the key for anything else. (Until 2026-11-10 the proxy had no request cap
+beyond axum's 2 MB default, no per-visitor limit and passed tools through;
+found in review.)
 
 ## What the kernel guarantees
 
