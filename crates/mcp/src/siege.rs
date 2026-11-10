@@ -498,9 +498,16 @@ impl<R: Rail + 'static> Siege<R> {
                         v["proposal"]["against"] == bill.as_str()
                             && v["adjudication"]["decision"]["Allow"].is_object()
                     })
-                    .and_then(|v| v["proposal"]["id"].as_str().map(str::to_string))
+                    .and_then(|v| {
+                        let id = v["proposal"]["id"].as_str()?.to_string();
+                        let amount = serde_json::from_value::<portcullis_kernel::Amount>(
+                            v["proposal"]["amount"].clone(),
+                        )
+                        .ok()?;
+                        Some((id, amount))
+                    })
             };
-            let Some(pid) = allowed else { continue };
+            let Some((pid, paid)) = allowed else { continue };
             let pid = portcullis_kernel::ProposalId::new(pid);
             let exec = self.gate.with_state(|s| s.execution(&pid).cloned()).await;
             let batch = match exec {
@@ -512,8 +519,10 @@ impl<R: Rail + 'static> Siege<R> {
                 .invoicer
                 .record_paid(
                     &issued.id,
-                    &self.cfg.scenario.amount,
-                    "USD",
+                    // What the gate allowed and the payout sent, not what
+                    // the bill said: the invoice records the money that moved.
+                    &paid.decimal_string(),
+                    &paid.asset.symbol,
                     &civil_date(now),
                     &batch,
                 )
