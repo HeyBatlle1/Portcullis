@@ -1,6 +1,7 @@
 # Stablecoin rail: design (branch `rails/evm`)
 
-Status: **design, phase 0.** Nothing here is on `main` or in the hosted demo.
+Status: **phase 2 done: one live testnet payment, settled at finality.**
+Nothing here is on `main` or in the hosted demo.
 Testnet only, by construction, as the PayPal rail is sandbox only.
 
 ## Why
@@ -26,13 +27,15 @@ chain, starting with PayPal USD (PYUSD) on Arbitrum Sepolia.
 
 ## Verified facts (2026-11-09, read from the chain)
 
-| | Arbitrum Sepolia |
-|---|---|
-| chain id | `421614` (`0x66eee`), from `sepolia-rollup.arbitrum.io/rpc` |
-| PYUSD (Paxos testnet) | `0x637A1259C6afd7E3AdF63993cA7E58BB438aB1B1` |
-| `symbol()` | `PYUSD` |
-| `decimals()` | `6` |
-| `authorizationState(address,bytes32)` | answers (EIP-3009 present) |
+| | Arbitrum Sepolia | Ethereum Sepolia |
+|---|---|---|
+| chain id | `421614` (`0x66eee`) | `11155111` (`0xaa36a7`) |
+| RPC used | `sepolia-rollup.arbitrum.io/rpc` | `ethereum-sepolia-rpc.publicnode.com` |
+| PYUSD (Paxos testnet) | `0x637A1259C6afd7E3AdF63993cA7E58BB438aB1B1` | `0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9` |
+| `symbol()` | `PYUSD` | `PYUSD` |
+| `decimals()` | `6` | `6` |
+| `authorizationState(address,bytes32)` | answers (EIP-3009 present) | answers; used live |
+| `finalized` behind `latest` | about 17 min | about 14 to 17 min |
 
 The PYUSD contract (paxosglobal/pyusd-contract, `PYUSD.abi`) implements
 EIP-3009: `transferWithAuthorization` (both the `v,r,s` and `bytes signature`
@@ -149,8 +152,41 @@ that is not case-folded.
    Mutation-checked: refusing after signing, never re-sending, judging the
    deadline at `latest`, skipping preflight, counting an unexplained use as
    paid, a fresh nonce per attempt, and a wrong EIP-712 prefix each fail a test.
-2. One live testnet payment with throwaway keys, read back from the chain.
+2. **Done, 2026-11-10.** One live testnet payment with throwaway keys, read
+   back from the chain. See *Live result*.
 3. The MCP router: two ledgers, two policies, the console showing both.
 4. Safe as the treasury, with top-ups.
 5. x402: Portcullis as the spending gate in front of HTTP 402 payments.
 6. Solana.
+
+## Live result (phase 2, 2026-11-10)
+
+`examples/evm_live.rs` on Ethereum Sepolia (`11155111`), PYUSD
+`0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9`, keys from `examples/evm_keys.rs`
+(float `0x4287…Ca32`, relayer `0xd6aF…10A0`, vendor `0xb7e3…cc0D`). The float
+was funded with 100 PYUSD from the Paxos faucet and never held ETH.
+
+1. The kernel judged a 12.84 PYUSD proposal to the vendor against a PYUSD
+   ledger and a 50 PYUSD per-transaction cap: `Allow { via: Discretionary }`
+   (no commitment was involved, so not `via: Commitment`).
+2. The float signed an EIP-3009 authorization, nonce
+   `0xe55f7319…550d1a` = `keccak256("portcullis:" || proposal_id)`; the relayer
+   broadcast it:
+   [`0x6093fd4a…eb077`](https://sepolia.etherscan.io/tx/0x6093fd4a1e2fc2d80143e76b0b23753bc244c13168395f10a3dc706d525eb077).
+3. Receipt: status 1, block 12,106,602, 275,290 gas, an `AuthorizationUsed`
+   log and one `Transfer(float → vendor, 12_840_000)`.
+4. `observe` answered `Pending` every 30 s while the block was mined but not
+   finalized, and `Success` at 815 s, when the `finalized` tag passed it.
+5. Resubmitting the same payment returned the same batch (the nonce) and
+   signed nothing. The relayer's transaction count is 1: nothing was sent
+   twice. Balances after: float 87.16, vendor 12.84.
+
+Two things learned getting here:
+
+- **Google's Ethereum Sepolia PYUSD faucet cannot fund a fresh address.** It
+  sends with a 100,000 gas limit; a transfer to an address that has never held
+  PYUSD needs about 158,000 (tx `0x1063f292…e69f` reverted at 98,840). The
+  Paxos faucet works.
+- Ethereum Sepolia's public node at `ethereum-sepolia-rpc.publicnode.com`
+  refuses `eth_getLogs` without an address filter. The rail always filters by
+  the token, so this did not bite, but an RPC swap should be checked for it.
