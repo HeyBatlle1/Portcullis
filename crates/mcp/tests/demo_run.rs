@@ -266,6 +266,7 @@ async fn the_compromised_agent_is_refused_every_way_it_tries() {
             "RecipientMalformed",
             "ExceedsPerTransaction",
             "AssetMismatch",
+            "CommitmentAmountShort",
         ]
     );
     // No model was involved.
@@ -274,7 +275,7 @@ async fn the_compromised_agent_is_refused_every_way_it_tries() {
     c.verify().unwrap();
     assert_eq!(
         c.records().iter().filter(|r| r.kind == "decision").count(),
-        5
+        6
     );
 }
 

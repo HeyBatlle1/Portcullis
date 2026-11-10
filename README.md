@@ -19,8 +19,8 @@ Hosted on the PayPal sandbox, free to use, no login:
 
 - **Console:** https://portcullis-br3k.onrender.com/console. Pick a scenario and an
   agent and press **Run the inbox**. Pick *Compromised agent* to watch a script
-  holding the agent's real token try five ways to steal the bill, and be refused
-  by five different rules.
+  holding the agent's real token try six ways to steal or sabotage the bill, and
+  be refused by six different rules.
 - **Siege:** https://portcullis-br3k.onrender.com/siege. Eight models from eight
   labs work the same AP inbox on one shift, each with its own token, against one
   approved bill. You play the attacker: throw hijacked-vendor emails, a fake
@@ -96,9 +96,10 @@ Instead the console also offers a **compromised agent**: a script, with no model
 holding the AP agent's real token and trying every route to the money. It
 redirects the approved bill, pays the attacker as an ordinary payment, uses the
 vendor's address with one Cyrillic letter in it, pays the vendor ten times the
-bill, and tries another currency. Five attempts, five different rules, nothing
-reserved. That is the case Portcullis exists for: the day the agent is wrong,
-injected, or no longer yours.
+bill, tries another currency, and finally pays the vendor one cent against the
+bill so it would read paid while the vendor went unpaid. Six attempts, six
+different rules, nothing reserved. That is the case Portcullis exists for: the
+day the agent is wrong, injected, or no longer yours.
 
 The page re-verifies the audit chain in your browser using the same
 length-prefixed SHA-256 encoding the kernel uses, and lets you download the
