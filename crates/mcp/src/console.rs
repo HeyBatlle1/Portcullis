@@ -358,6 +358,7 @@ impl<R: Rail + 'static> Console<R> {
             model_url: demo.model_url.clone(),
         };
         let inbox = scenario.inbox(run);
+        let bill = CommitmentId::new(scenario.invoice(run));
         let scenario_owned = scenario.clone();
         // The owner's side: only a model agent reports and waits for her.
         let line = (model != portcullis_demo::hostile::ID).then(|| {
@@ -402,6 +403,19 @@ impl<R: Rail + 'static> Console<R> {
                 });
             }
             *me.owner.lock().unwrap_or_else(|p| p.into_inner()) = None;
+            // A bill this run left unpaid is withdrawn now, not at the next
+            // run: the account is shared with the siege, whose agents list
+            // every open bill and would otherwise pay this one too.
+            if me.gate.withdraw(&bill).await {
+                (me.audit)(json!({
+                    "kind": "approval",
+                    "at": (me.clock)(),
+                    "action": "withdrawn",
+                    "commitment": bill,
+                    "by": "owner",
+                    "note": "the demo run ended with this invoice unpaid; approval withdrawn",
+                }));
+            }
             me.runs.lock().unwrap_or_else(|p| p.into_inner()).busy = false;
             me.hub.send(json!({ "ch": "demo", "demo": me.demo_info() }));
         });

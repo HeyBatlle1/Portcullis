@@ -301,12 +301,31 @@ async fn the_compromised_agent_is_refused_every_way_it_tries() {
     );
     // No model was involved.
     assert!(b.script.seen.lock().unwrap().is_empty());
-    let c = b.chain.lock().unwrap();
-    c.verify().unwrap();
-    assert_eq!(
-        c.records().iter().filter(|r| r.kind == "decision").count(),
-        6
-    );
+    {
+        let c = b.chain.lock().unwrap();
+        c.verify().unwrap();
+        assert_eq!(
+            c.records().iter().filter(|r| r.kind == "decision").count(),
+            6
+        );
+    }
+    // The bill it could not touch is withdrawn when the run ends, so no other
+    // agent on the shared account (a siege shift) finds it open and pays it.
+    let withdrawn = || {
+        b.chain
+            .lock()
+            .unwrap()
+            .records()
+            .last()
+            .is_some_and(|r| r.kind == "approval" && r.body.contains(r#""action":"withdrawn""#))
+    };
+    for _ in 0..50 {
+        if withdrawn() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(withdrawn(), "the unpaid bill was left open");
 }
 
 #[tokio::test]

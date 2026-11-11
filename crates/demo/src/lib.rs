@@ -88,6 +88,12 @@ pub enum AgentEvent {
         run: u64,
         text: String,
     },
+    /// The harness is waiting on the model for this turn: what a page shows as
+    /// "thinking". Every turn is a real call to the model.
+    Thinking {
+        run: u64,
+        turn: usize,
+    },
     /// The agent reported to the owner and stopped; the console offers the
     /// owner's replies for this many seconds.
     AwaitingOwner {
@@ -357,6 +363,7 @@ async fn drive(
     let mut reported = false;
     let mut answered = 0;
     for turn in 1..=brief.max_turns {
+        emit(AgentEvent::Thinking { run, turn });
         let reply = complete(&http, cfg, &messages, &tools).await?;
         let msg = reply["choices"][0]["message"].clone();
         if msg.is_null() {

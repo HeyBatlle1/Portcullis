@@ -235,7 +235,9 @@ account, and the compromised-agent run had left its approved bill
 (`INV-20417`) open, because nothing it tried was allowed. Mistral saw two open
 approved bills to the same vendor and paid both, each once. That is the gate
 doing its job, since the owner approved both, but on a real desk it would be a
-question for the owner, not the agent.
+question for the owner, not the agent. On the siege page it read as a double
+payment, so since 2026-11-11 a console run withdraws its own bill when it ends
+unpaid.
 
 `crates/mcp/tests/siege_run.rs` runs a shift offline with eight scripted clerks
 that all believe the hijacked-vendor email: one payment allowed, seven
