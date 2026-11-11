@@ -21,7 +21,9 @@ there — by construction, not by configuration.
 Hosted on the PayPal sandbox, free to use, no login:
 
 - **Console:** https://portcullis-br3k.onrender.com/console. Pick a scenario and an
-  agent and press **Run the inbox**. Pick *Compromised agent* to watch a script
+  agent and press **Run the inbox**. When the agent writes to Dana, the owner,
+  answer as her: tell it to pay the real bill, or to pay the fraudster's
+  account, and watch what the gate does. Pick *Compromised agent* to watch a script
   holding the agent's real token try six ways to steal or sabotage the bill, and
   be refused by six different rules.
 - **Siege:** https://portcullis-br3k.onrender.com/siege. Eight models from eight
@@ -37,6 +39,10 @@ Hosted on the PayPal sandbox, free to use, no login:
 
 Runs and shifts are capped (one at a time, a cooldown, a daily limit, and a few
 per visitor per day) because each one moves real sandbox money and calls models.
+The limits reset at midnight UTC. A capped page says so; it is not broken.
+
+The hosted record lives in memory and starts over when the server restarts;
+one session is kept in `demo/evidence/` (see *The record, kept*).
 
 ## What it does with PayPal
 
@@ -272,15 +278,56 @@ To rebuild it: `cd studio && npm install && npm run build`.
 
 ## Running it
 
+Every claim below has a test. `rust-toolchain.toml` pins Rust 1.97, which `rustup` installs on first build:
+
 ```sh
-cargo test                                   # everything except the live sandbox test
-cargo run -p portcullis-mcp -- mint-token my-agent   # prints a token once, and the hash to configure
-# set PAYPAL_* and PORTCULLIS_AGENT_TOKENS (see crates/mcp/src/main.rs), then:
-cargo run -p portcullis-mcp -- serve       # set OPENROUTER_API_KEY too to enable the demo agent
+git clone https://github.com/HeyBatlle1/Portcullis && cd Portcullis
+cargo test          # the whole suite, offline: fake PayPal, fake models, no keys needed
 ```
+
+To run your own copy against the PayPal sandbox:
+
+1. At [developer.paypal.com](https://developer.paypal.com), open **Apps &
+   Credentials** (Sandbox) and create an app. Its client id and secret are
+   `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`: the account Portcullis pays
+   from. Optional: a second app on a sandbox *business* account, with
+   Invoicing enabled, becomes the vendor (`PAYPAL_VENDOR_CLIENT_ID` and
+   `_SECRET`), and siege bills become real PayPal invoices.
+2. Mint an agent token: `cargo run -p portcullis-mcp -- mint-token my-agent`.
+   It prints the token once and the `name:sha256` to put in
+   `PORTCULLIS_AGENT_TOKENS`.
+3. Optional: `OPENROUTER_API_KEY` turns on the demo agents, the siege and the
+   audit desk's agents. Without it, the gate and the MCP surface still run.
+4. `cargo run -p portcullis-mcp -- serve`, then open
+   `http://localhost:8787/console`.
+
+`.env.example` lists every variable the server reads, with secrets blank. Or
+deploy the same thing to Render from `render.yaml`, which asks for each secret
+and never stores one in the repository:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/HeyBatlle1/Portcullis)
 
 Any MCP client connects the same way it would to PayPal's own MCP server:
 `npx mcp-remote https://<host>/mcp --header "Authorization: Bearer <token>"`.
+
+### Check the claims
+
+| Claim | Test |
+|---|---|
+| The agent gets four tools, and none can change what it is allowed to do | `crates/mcp/tests/surface.rs`: `the_tool_list_is_four_tools_and_none_of_them_can_change_authority` |
+| A payment reaches PayPal at most once, even across retries and timeouts | `crates/kernel/tests/in_flight.rs`: `a_proposal_id_reaches_money_at_most_once`; `crates/executor/tests/paypal_wire.rs`: `the_request_carries_the_authorized_bytes_and_one_idempotency_key` |
+| Only a definitive answer from PayPal settles or releases money | `crates/executor/tests/gatehouse.rs`: `an_unknown_outcome_holds_the_money_and_retries_with_the_same_key`, `persistent_ambiguity_goes_to_a_human_with_the_money_held` |
+| The executor cannot be pointed at live PayPal | `crates/executor/tests/paypal_wire.rs`: `the_executor_cannot_be_pointed_at_live_paypal` |
+| A bill is pinned to its payee and paid in full, once | `crates/kernel/tests/invariants.rs`: `naming_a_commitment_is_an_assertion_that_must_hold` |
+| A lookalike address with one Cyrillic letter is refused, and named | `crates/kernel/tests/in_flight.rs`: `a_homoglyph_of_an_allowed_recipient_is_refused` |
+| The agent's stated reason cannot change a decision | `crates/kernel/tests/invariants.rs`: `the_purpose_string_cannot_change_a_decision` |
+| Eight agents, one bill: paid once, attack stopped eight times | `crates/mcp/tests/siege_run.rs` |
+| The vendor's PayPal invoice reads paid once the payout settles | `crates/mcp/tests/siege_invoice.rs` |
+| Even the owner's word cannot redirect an approved bill | `crates/mcp/tests/demo_run.rs`: `dana_answers_and_the_gate_still_decides` |
+| Editing any field of the record is caught | `crates/kernel/tests/audit.rs`; `crates/mcp/tests/evidence.rs` re-verifies a record kept from the hosted demo |
+| The audit desk's agents reach only their own tools and models | `crates/mcp/tests/studio_proxy.rs` |
+
+Guards are mutation-checked: each was broken on purpose and a test failed.
 
 ## Next: a second rail
 
