@@ -92,6 +92,9 @@ button, select, input { font: inherit; }
 @media (prefers-reduced-motion: reduce) { .tstamp.land { animation: none; } }
 
 /* the attacker's desk, on paper */
+.caught { margin-top: 18px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,.12); font-size: 13px; color: var(--g-soft); }
+.caught b { color: var(--g-ink); }
+.caught code { font: 12px var(--mono); color: var(--g-ink); word-break: break-all; }
 .attack { background: var(--g-paper); color: var(--g-ink); padding: 14px 16px 24px; border-left: 6px solid var(--g-ink); }
 .attack h2 { font-size: 15px; margin: 0 0 4px; }
 .attack p { margin: 0 0 12px; color: var(--g-soft); font-size: 13px; }
@@ -211,6 +214,7 @@ dialog::backdrop { background: rgba(8, 12, 18, .7); }
     </details>
     <div class="note" id="note" role="status"></div>
     <div class="log" id="alog"></div>
+    <div class="caught" id="caught" hidden></div>
   </aside>
 </main>
 
@@ -471,6 +475,24 @@ function tick() {
   }
 }
 setInterval(tick, 500);
+
+/* The doormat: people who skip the attack buttons and probe the server for
+   /.env or /wp-login.php get told "we see you", and are counted here. Paths
+   and times only; no IPs are kept. */
+async function caught() {
+  try {
+    const c = await (await fetch("/caught")).json();
+    const box = $("caught");
+    if (!c.today) { box.hidden = true; return; }
+    const ago = (t) => { const m = Math.max(0, Math.round((c.now - t) / 60)); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
+    const last = c.recent[0];
+    box.replaceChildren(
+      el("b", null, `Probed the server instead today: ${c.today}`), el("br"),
+      document.createTextNode("Latest: "), el("code", null, last.path), document.createTextNode(`, ${ago(last.at)}. We see you.`));
+    box.hidden = false;
+  } catch { /* the count is a nicety; the page works without it */ }
+}
+caught(); setInterval(caught, 60000);
 
 function renderMoves() {
   const m = $("moves"); m.replaceChildren();

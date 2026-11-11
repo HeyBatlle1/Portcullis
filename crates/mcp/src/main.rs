@@ -332,6 +332,10 @@ fn serve() -> Result<(), String> {
             Some(s) => router.merge(portcullis_mcp::siege::routes(s)),
             None => router,
         };
+        // Last: whatever nothing else claims, including the doormat.
+        let router = router.merge(portcullis_mcp::trap::routes(
+            portcullis_mcp::trap::Trap::new(Arc::new(unix_now)),
+        ));
 
         // The settlement loop. Decisions happen on request; money moves here.
         let driver = gate.clone();
