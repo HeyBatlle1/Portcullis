@@ -400,6 +400,34 @@ async fn an_essay_in_purpose_is_refused_at_the_door() {
     );
 }
 
+/// Every field lands in the log, so every field is bounded at the door, not
+/// only the one meant for prose; and nothing is ever paid for zero.
+#[tokio::test]
+async fn every_field_is_bounded_and_zero_is_not_an_amount() {
+    let h = start().await;
+    let mut s = Session::open(&h, ALICE).await;
+    let big = "a".repeat(300) + "@example.com";
+    for args in [
+        json!({"recipient": big, "amount":"1", "currency":"USD","purpose":"x"}),
+        json!({"recipient":"vendor@example.com","amount":"1","currency":"U".repeat(5000),"purpose":"x"}),
+        json!({"recipient":"vendor@example.com","amount":"1","currency":"USD","commitment":"c".repeat(65),"purpose":"x"}),
+        json!({"recipient":"vendor@example.com","amount":"0.00","currency":"USD","purpose":"x"}),
+        json!({"recipient":"vendor@example.com","amount":"0","currency":"USD","purpose":"x"}),
+    ] {
+        let r = s
+            .call(
+                "tools/call",
+                json!({"name":"propose_payment","arguments":args}),
+            )
+            .await;
+        assert!(r["error"].is_object(), "{r}");
+    }
+    assert!(
+        h.audit.lock().unwrap().is_empty(),
+        "none of it reached the kernel or the log"
+    );
+}
+
 #[test]
 fn the_audit_sink_builds_a_verifiable_chain() {
     let chain: portcullis_mcp::SharedAudit = Default::default();

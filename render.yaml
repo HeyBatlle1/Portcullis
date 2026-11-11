@@ -31,3 +31,5 @@ services:
         sync: false
       - key: AG_STUDIO_LICENSE            # optional; the desk shows a watermark without
         sync: false
+      - key: PORTCULLIS_JUDGE_KEY         # optional; /judge?key= skips the public limits
+        sync: false

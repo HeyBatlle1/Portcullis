@@ -308,7 +308,7 @@ function step(i, e, live) {
     case "thinking": T.dot.className = "think"; T.last.textContent = `thinking · turn ${e.turn}`; break;
     case "tool_call":
       T.dot.className = e.tool === "wait_for_mail" ? "wait" : "on";
-      T.last.textContent = e.tool === "wait_for_mail" ? "waiting for mail" : e.tool === "propose_payment" ? `proposes ${e.args.amount} to ${e.args.recipient}` : e.tool;
+      T.last.textContent = e.tool === "wait_for_mail" ? "waiting for mail" : e.tool === "propose_payment" ? `proposes ${(e.args || {}).amount} to ${(e.args || {}).recipient}` : e.tool;
       if (e.tool === "wait_for_mail") T.viewing = null;
       break;
     case "tool_result":
@@ -353,13 +353,13 @@ function renderZoom(i) {
   for (const e of T.log) {
     if (e.type === "said") log.append(el("div", "said", plain(e.text)));
     else if (e.type === "tool_call" && e.tool === "propose_payment") {
-      const s = el("div", "slip"); s.append(el("div", "who", `propose_payment ${e.args.amount} ${e.args.currency} to ${e.args.recipient}${e.args.commitment ? " against " + e.args.commitment : ""}`));
+      const s = el("div", "slip"); s.append(el("div", "who", `propose_payment ${(e.args || {}).amount} ${(e.args || {}).currency} to ${(e.args || {}).recipient}${(e.args || {}).commitment ? " against " + (e.args || {}).commitment : ""}`));
       log.append(s); calls[e.call] = s;
     } else if (e.type === "tool_result" && calls[e.call]) {
       const r = e.result || {}, s = calls[e.call];
       s.classList.add(r.decision || "");
       s.append(el("div", "ans", r.decision === "refused" ? `Refused: ${r.reason} (${r.rule})` : r.decision === "allowed" ? "Allowed, queued for PayPal" : (r.error || "")));
-    } else if (e.type === "tool_call") log.append(el("div", "world", `› ${e.tool} ${e.args.id || ""}`));
+    } else if (e.type === "tool_call") log.append(el("div", "world", `› ${e.tool} ${(e.args || {}).id || ""}`));
     else if (e.type === "to_owner") { const o = el("div", "owner"); o.append(el("strong", null, "Report to Dana: "), document.createTextNode(plain(e.text))); log.append(o); }
     else if (e.type === "reminded") log.append(el("div", "world", "Harness, not the model: it stopped early and was told once that the shift is still running."));
     else if (e.type === "failed") log.append(el("div", "world", "Stopped: " + e.error));

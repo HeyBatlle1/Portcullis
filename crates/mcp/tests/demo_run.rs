@@ -451,3 +451,17 @@ async fn dana_answers_and_the_gate_still_decides() {
     // After the run, there is no one to answer.
     assert_eq!(reply("hold").await, 409);
 }
+
+/// A run starts only from a JSON request. A bodiless POST carries no content
+/// type, which is what lets another site send one without asking the browser.
+#[tokio::test]
+async fn a_bodiless_post_starts_nothing() {
+    let b = boot().await;
+    let r = reqwest::Client::new()
+        .post(format!("http://{}/console/run", b.addr))
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_client_error(), "{}", r.status());
+    assert!(b.chain.lock().unwrap().records().is_empty());
+}

@@ -35,11 +35,9 @@ pub const MAX_OUTPUT_TOKENS: u64 = 4_000;
 /// chain records) are well under it; the default axum limit was 2 MB.
 pub const MAX_REQUEST_BYTES: usize = 512 * 1024;
 
-/// Top-level fields that would let the page reach past the model and tools
-/// it was given: OpenRouter's `models` (a fallback list, which would bypass
-/// the allowlist), `plugins` and `web_search_options` (server-side web
-/// search, billed to us), and `route`.
-const STRIPPED: &[&str] = &["models", "plugins", "web_search_options", "route"];
+/// Reasoning effort the desk may ask for; anything higher is lowered to the
+/// last of these. AG Studio asks for "medium".
+const EFFORTS: &[&str] = &["minimal", "low", "medium"];
 
 pub struct Studio {
     /// Built app: `index.html` plus `assets/`.
@@ -151,17 +149,159 @@ fn error(code: StatusCode, message: &str) -> Response {
     (code, Json(json!({ "error": { "message": message } }))).into_response()
 }
 
-/// Keep only what the desk's agents need: their own function tools. A
-/// server-side tool (web search, file search, code interpreter) runs on the
-/// provider's side, on our key, outside anything this page shows.
-pub fn sanitize(body: &mut Value) {
-    if let Some(o) = body.as_object_mut() {
-        for k in STRIPPED {
-            o.remove(*k);
+/// Build the request the model sees from only what the desk's agents send:
+/// conversation text, their own function tools, and modest reasoning. An
+/// allowlist, not a denylist: a field this does not name never leaves, so a
+/// new provider feature cannot be switched on from the page. What is dropped:
+/// images, files and audio in the input (each one bills, and a URL makes the
+/// provider fetch it), server-side tools of any kind, provider routing,
+/// service tiers, tracing, storage, and anything else not listed here.
+pub fn sanitize(body: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    if let Some(i) = body.get("instructions").and_then(Value::as_str) {
+        out.insert("instructions".into(), json!(i));
+    }
+    out.insert("input".into(), input(body.get("input")));
+    let tools: Vec<Value> = body
+        .get("tools")
+        .and_then(Value::as_array)
+        .map(|ts| {
+            ts.iter()
+                .filter(|t| t["type"] == "function" && t["name"].is_string())
+                .map(|t| {
+                    let mut f = json!({ "type": "function", "name": t["name"] });
+                    for k in ["description", "parameters", "strict"] {
+                        if let Some(v) = t.get(k) {
+                            f[k] = v.clone();
+                        }
+                    }
+                    f
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if !tools.is_empty() {
+        out.insert("tools".into(), json!(tools));
+        let choice = match body.get("tool_choice") {
+            Some(Value::String(c)) if ["auto", "none", "required"].contains(&c.as_str()) => {
+                json!(c)
+            }
+            Some(c) if c["type"] == "function" && c["name"].is_string() => {
+                json!({ "type": "function", "name": c["name"] })
+            }
+            _ => json!("auto"),
+        };
+        out.insert("tool_choice".into(), choice);
+        if let Some(p) = body.get("parallel_tool_calls").and_then(Value::as_bool) {
+            out.insert("parallel_tool_calls".into(), json!(p));
         }
     }
-    if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
-        tools.retain(|t| t["type"] == "function");
+    if let Some(f) = body.get("text").and_then(|t| t.get("format")) {
+        if ["text", "json_object", "json_schema"].contains(&f["type"].as_str().unwrap_or("")) {
+            out.insert("text".into(), json!({ "format": f }));
+        }
+    }
+    let effort = body["reasoning"]["effort"].as_str().unwrap_or("medium");
+    let effort = if EFFORTS.contains(&effort) {
+        effort
+    } else {
+        "medium"
+    };
+    out.insert("reasoning".into(), json!({ "effort": effort }));
+    if let Some(t) = body.get("temperature").and_then(Value::as_f64) {
+        out.insert("temperature".into(), json!(t.clamp(0.0, 2.0)));
+    }
+    out.insert(
+        "stream".into(),
+        json!(body.get("stream").and_then(Value::as_bool).unwrap_or(true)),
+    );
+    out.insert("store".into(), json!(false));
+    Value::Object(out)
+}
+
+/// The conversation, keeping only text and the desk's own tool traffic.
+fn input(v: Option<&Value>) -> Value {
+    match v {
+        Some(Value::String(s)) => json!(s),
+        Some(Value::Array(items)) => Value::Array(items.iter().filter_map(item).collect()),
+        _ => json!(""),
+    }
+}
+
+fn item(it: &Value) -> Option<Value> {
+    let kind = it["type"].as_str().unwrap_or("message");
+    match kind {
+        "message" => {
+            let role = it["role"].as_str()?;
+            if !["user", "assistant", "system", "developer"].contains(&role) {
+                return None;
+            }
+            let content = match &it["content"] {
+                Value::String(s) => json!(s),
+                Value::Array(parts) => Value::Array(
+                    parts
+                        .iter()
+                        .filter(|p| {
+                            ["input_text", "output_text", "refusal"]
+                                .contains(&p["type"].as_str().unwrap_or(""))
+                        })
+                        .map(|p| {
+                            let mut q = json!({ "type": p["type"] });
+                            for k in ["text", "refusal"] {
+                                if let Some(t) = p.get(k).filter(|t| t.is_string()) {
+                                    q[k] = t.clone();
+                                }
+                            }
+                            q
+                        })
+                        .collect(),
+                ),
+                _ => return None,
+            };
+            let mut m = json!({ "type": "message", "role": role, "content": content });
+            for k in ["id", "status"] {
+                if let Some(x) = it.get(k).filter(|x| x.is_string()) {
+                    m[k] = x.clone();
+                }
+            }
+            Some(m)
+        }
+        "function_call" => {
+            let mut c = json!({ "type": "function_call" });
+            for k in ["id", "call_id", "name", "arguments", "status"] {
+                if let Some(x) = it.get(k).filter(|x| x.is_string()) {
+                    c[k] = x.clone();
+                }
+            }
+            Some(c)
+        }
+        "function_call_output" => {
+            let out = it["output"].as_str()?;
+            let mut c = json!({ "type": "function_call_output", "output": out });
+            for k in ["id", "call_id", "status"] {
+                if let Some(x) = it.get(k).filter(|x| x.is_string()) {
+                    c[k] = x.clone();
+                }
+            }
+            Some(c)
+        }
+        "reasoning" => {
+            let summary: Vec<Value> = it["summary"]
+                .as_array()
+                .map(|s| {
+                    s.iter()
+                        .filter(|p| p["type"] == "summary_text" && p["text"].is_string())
+                        .map(|p| json!({ "type": "summary_text", "text": p["text"] }))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut r = json!({ "type": "reasoning", "summary": summary });
+            if let Some(x) = it.get("id").filter(|x| x.is_string()) {
+                r["id"] = x.clone();
+            }
+            Some(r)
+        }
+        _ => None,
     }
 }
 
@@ -170,7 +310,7 @@ pub fn sanitize(body: &mut Value) {
 async fn proxy(
     State(s): State<Arc<Studio>>,
     headers: HeaderMap,
-    Json(mut body): Json<Value>,
+    Json(body): Json<Value>,
 ) -> Response {
     let Some(key) = s.openrouter_key.as_deref().filter(|_| s.ai_enabled()) else {
         return error(
@@ -185,24 +325,30 @@ async fn proxy(
     if !s.models.contains(&model) {
         return error(StatusCode::BAD_REQUEST, "that model is not offered here");
     }
+    if !body.is_object() {
+        return error(StatusCode::BAD_REQUEST, "expected a JSON object");
+    }
     let now = portcullis_executor::paypal::unix_now();
-    if !s
-        .per_visitor
-        .take(crate::visitor::client(&headers).as_deref(), now)
-    {
-        return error(
-            StatusCode::TOO_MANY_REQUESTS,
-            "you have used today's questions for the audit desk; try again tomorrow",
-        );
+    // Judges skip the public allowances; see `visitor::is_judge`.
+    if !crate::visitor::is_judge(&headers) {
+        if let Err(e) = s.spend(now) {
+            return error(StatusCode::TOO_MANY_REQUESTS, &e);
+        }
+        if !s
+            .per_visitor
+            .take(crate::visitor::client(&headers).as_deref(), now)
+        {
+            return error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "you have used today's questions for the audit desk; try again tomorrow",
+            );
+        }
     }
-    if let Err(e) = s.spend(now) {
-        return error(StatusCode::TOO_MANY_REQUESTS, &e);
-    }
-    sanitize(&mut body);
-    body["model"] = json!(model);
     let asked = body["max_output_tokens"]
         .as_u64()
         .unwrap_or(MAX_OUTPUT_TOKENS);
+    let mut body = sanitize(&body);
+    body["model"] = json!(model);
     body["max_output_tokens"] = json!(asked.min(MAX_OUTPUT_TOKENS));
 
     let upstream = s
@@ -214,6 +360,24 @@ async fn proxy(
         .send()
         .await;
     match upstream {
+        Ok(r) if !r.status().is_success() => {
+            // The provider's own words can describe our account (credit
+            // left, limits); the page gets a plain answer, the log the rest.
+            let code = r.status().as_u16();
+            let detail = r.text().await.unwrap_or_default();
+            eprintln!(
+                "audit desk: model provider answered {code}: {}",
+                detail.chars().take(300).collect::<String>()
+            );
+            error(
+                if code == 429 {
+                    StatusCode::TOO_MANY_REQUESTS
+                } else {
+                    StatusCode::BAD_GATEWAY
+                },
+                "the model provider could not answer this request",
+            )
+        }
         Ok(r) => {
             let status =
                 StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);

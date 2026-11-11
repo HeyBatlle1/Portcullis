@@ -143,6 +143,17 @@ missing, visitors are not counted at all and only the site-wide caps apply.
 That is deliberate: the other choice, one shared allowance, would quietly turn
 the demo off for everyone after a few uses.
 
+An IPv6 visitor is counted by their /64, since one machine is routinely given
+a whole /64.
+
+**Judges' pass.** If `PORTCULLIS_JUDGE_KEY` is set, `/judge?key=...` sets a
+`SameSite=Strict`, `HttpOnly` cookie holding the key's hash, and requests that
+carry it skip the per-visitor allowances and the public daily caps. That is
+for one case: someone uses up the day's public runs, and the people judging
+the demo arrive to a locked door. The link goes only in the private testing
+instructions. A wrong key is answered like any other probe (see *The
+doormat*).
+
 That Cloudflare sets this header on Render is Render's current setup,
 observed, not a documented guarantee. We checked it on the hosted demo on
 2026-11-03: from one home connection, the sixth console run of the day was
@@ -163,14 +174,76 @@ Their model calls go through `/audit/ai/responses`, which is open to anyone
 with the URL, like `/console/run`, and bounded the same way: the key stays on
 the server, only configured models are accepted, a request is capped at 512 KB
 and its output per turn at 4,000 tokens, each visitor gets 60 calls a day, and
-all calls count against a daily budget shared by every viewer. The proxy also
-removes what would reach past the model it was given: every tool that is not a
-plain function (server-side web search, code interpreter, file search, all run
-and billed on the provider's side), and OpenRouter's `models` fallback list,
-`plugins` and `web_search_options`. Someone can use up the budget; they cannot
-use the key for anything else. (Until 2026-11-10 the proxy had no request cap
-beyond axum's 2 MB default, no per-visitor limit and passed tools through;
-found in review.)
+all calls count against a daily budget shared by every viewer.
+
+Since 2026-11-11 the proxy rebuilds every request from an allowlist rather than
+filtering it: conversation text, the desk's own function tools, a tool choice
+among those, a text format, reasoning effort at most `medium`, and nothing
+else. Images, files, audio and video in the input are dropped (each bills, and
+a URL makes the provider fetch it), as are server-side tools, provider
+routing, service tiers, tracing and storage. A body that is not a JSON object
+is refused before it costs anything. The provider's error text stays in the
+server log; the page gets a plain message.
+
+What that still allows, stated plainly: anyone can use the proxy as a chat
+model, with their own instructions, inside those caps. The key cannot be read
+or used for anything outside them, but within them it is a free model for
+whoever finds the URL. The caps are what bound it. (Before 2026-11-10 it had
+no request cap or per-visitor limit; before 2026-11-11 it was a denylist that
+passed images, file URLs and costly options through. Both found in review.)
+
+## The edge, and the doormat
+
+Every state-changing request from a browser that says it came from another
+site (`Sec-Fetch-Site` other than `same-origin`, or a foreign `Origin`) is
+refused, and runs and shifts require a JSON body, so another site cannot make
+a visitor's browser start a run, a shift or a model call on that visitor's
+allowance. (Before 2026-11-11 a bodiless cross-site POST to `/console/run` or
+`/siege/start` started one: a browser sends that without asking first. Found
+in review.) Every response forbids framing by other sites and MIME sniffing,
+sends no referrer, and asks for HTTPS only. At most 300 live views are served
+at once, each replaying the last 150 records, so open-and-never-read
+connections cannot exhaust memory. MCP requests are capped at 64 KB, and every
+field of a proposal is bounded at the door (recipient 254 bytes, currency 8,
+bill id 64), not only `purpose`: each field lands in the log.
+
+Requests for paths a payments demo never serves (`/.env`, `/.git/config`,
+`/wp-login.php`, `/admin`, `*.php`, traversal) are answered with "We see you"
+instead of a 404, and counted: the path and the time, nothing else, the last
+20 kept. The siege page shows today's count. It is the router's fallback, so it
+never shadows a real route, and it touches nothing in the gate, the ledger or
+the chain.
+
+## Red team, 2026-11-11
+
+Four agents attacked the code and the hosted demo the day before the
+deadline: the web surface, the money path, the AI layer, and secrets and
+supply chain. None found a way to pay a recipient the policy does not allow,
+pay a bill twice, exceed a limit, reach a secret, or reach `/mcp` without a
+token. What they found, and what happened to it:
+
+| Finding | Status |
+|---|---|
+| A bodiless cross-site POST started runs and shifts on visitors' allowances | Fixed (see *The edge*) |
+| The audit-desk proxy was a denylist; images, file URLs and costly options passed | Fixed: allowlist. Still a chat model inside the caps (see *The audit desk*) |
+| A non-object body to the proxy crashed the handler after charging the budget | Fixed |
+| IPv6 visitors were counted per address | Fixed: per /64 |
+| A few addresses can use up the day's public caps | Mitigated: the judges' pass; the caps themselves remain |
+| Unbounded `recipient`, `currency`, bill id: an agent token could grow the in-memory chain | Fixed: bounded at the door, MCP bodies capped at 64 KB |
+| Kernel: a discretionary payment's floor check counted money earmarked for bills, so it could leave an approved bill unpayable, and the owner's top-up could refill it | Fixed: the floor is measured from what is free (`a_discretionary_payment_cannot_strand_an_approved_bill_under_the_floor`). Latent on the hosted demo, whose policy allows bills only |
+| Zero amounts were accepted | Fixed: refused at the door |
+| Unbounded live-view connections | Fixed: 300, each replaying 150 records |
+| No security headers | Fixed |
+| rmcp advisory RUSTSEC-2026-0462 (client side, loopback only) | Fixed: rmcp 3.9.0 |
+| The siege page threw on a tool call whose arguments were `null` | Fixed |
+| Withdrawing a bill while its payment is in flight does nothing; if the payout then fails, the bill reopens | Open. The money would still go only to the approved payee, for the approved amount, once |
+| A revocation made during a drive pass does not stop a send already queued in that pass | Open, library-level: the hosted demo never changes policy while running |
+| Two drive passes at once could both submit a payment | Open, library-level: the server runs one loop; PayPal's `PayPal-Request-Id` makes the second a no-op |
+| An `UNCLAIMED` payout counts as paid; if PayPal later returns it, the money is credited back but the bill and the vendor's invoice stay paid | Open: records, not money |
+| The audit desk renders model-written markdown images and links, and has no full CSP (AG Studio's bundle) | Open. Only token holders write the text it reads; nothing secret is on that origin |
+| The sentinel answers every burst of refusals, so a stream of refusals spends watchers' allowances | Open: bounded by those allowances |
+| The `rails/evm` branch trusts the RPC node's chain id and domain separator | Open, branch only: compute the domain locally before signing |
+| The AG Studio key served to `/audit` is an evaluation key | A licensing question, not a security one |
 
 ## What the kernel guarantees
 

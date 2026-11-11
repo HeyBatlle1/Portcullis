@@ -313,6 +313,30 @@ fn the_balance_floor_binds_even_on_a_scheduled_payment() {
     );
 }
 
+/// A discretionary payment is measured against the floor from what is free,
+/// not from a balance that still holds approved bills. Otherwise it could spend
+/// down into a bill's earmark and leave the bill refused for the floor.
+#[test]
+fn a_discretionary_payment_cannot_strand_an_approved_bill_under_the_floor() {
+    let mut l = ledger(10_000);
+    l.commitments.push(commitment(
+        "rent",
+        "landlord@example.com",
+        3_200,
+        TimeWindow::new(T0, T0 + DAY),
+    ));
+    let p = pol(
+        vec![standing("vendor@example.com", T0)],
+        vec![Rule::BalanceFloor { minor: 2_500 }],
+    );
+    // Free: 10,000 - 3,200 = 6,800. Above the floor: 4,300.
+    assert_eq!(
+        decide(&l, &p, &proposal("vendor@example.com", 5_000), T0).refused_by(),
+        Some(RuleId::BreachesBalanceFloor)
+    );
+    assert!(decide(&l, &p, &proposal("vendor@example.com", 4_300), T0).is_allowed());
+}
+
 #[test]
 fn the_kernel_refuses_to_compare_across_assets() {
     let l = ledger(100_000); // USD

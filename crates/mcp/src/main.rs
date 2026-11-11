@@ -27,6 +27,7 @@
 //! | `AG_STUDIO_LICENSE`        | AG Studio licence key (optional; watermark without) |
 //! | `PORTCULLIS_STUDIO_MODELS` | models the audit desk's agents may use            |
 //! | `PORTCULLIS_STUDIO_DAILY_CALLS` | audit-desk model calls per UTC day (default 400) |
+//! | `PORTCULLIS_JUDGE_KEY` | optional; `/judge?key=` sets a cookie that skips the public limits (16+ chars) |
 //! | `PORTCULLIS_STUDIO_PER_VISITOR` | audit-desk model calls one visitor may make per day (default 60) |
 
 use portcullis_executor::{paypal::unix_now, Credentials, Endpoint, Gatehouse, PayPal};
@@ -332,10 +333,16 @@ fn serve() -> Result<(), String> {
             Some(s) => router.merge(portcullis_mcp::siege::routes(s)),
             None => router,
         };
+        if let Ok(k) = std::env::var("PORTCULLIS_JUDGE_KEY") {
+            portcullis_mcp::visitor::set_judge_key(k.trim())?;
+            println!("judges' pass: on");
+        }
         // Last: whatever nothing else claims, including the doormat.
-        let router = router.merge(portcullis_mcp::trap::routes(
-            portcullis_mcp::trap::Trap::new(Arc::new(unix_now)),
-        ));
+        let router = router
+            .merge(portcullis_mcp::trap::routes(
+                portcullis_mcp::trap::Trap::new(Arc::new(unix_now)),
+            ))
+            .layer(axum::middleware::from_fn(portcullis_mcp::edge::harden));
 
         // The settlement loop. Decisions happen on request; money moves here.
         let driver = gate.clone();

@@ -256,7 +256,7 @@ impl<R: Rail + 'static> Console<R> {
         let records: Vec<AuditRecord> = {
             let c = self.chain.lock().unwrap_or_else(|p| p.into_inner());
             let r = c.records();
-            r[r.len().saturating_sub(500)..].to_vec()
+            r[r.len().saturating_sub(HELLO_RECORDS)..].to_vec()
         };
         let run_log = self
             .hub
@@ -320,14 +320,14 @@ impl<R: Rail + 'static> Console<R> {
                 r.day = day;
                 r.today = 0;
             }
-            if r.today >= demo.daily_runs {
+            if who != Some(crate::visitor::JUDGE) && r.today >= demo.daily_runs {
                 return Err((
                     StatusCode::TOO_MANY_REQUESTS,
                     "daily demo limit reached".into(),
                 ));
             }
             // Last, so a start refused for any other reason costs nothing.
-            if !self.visitors.take(who, now) {
+            if who != Some(crate::visitor::JUDGE) && !self.visitors.take(who, now) {
                 return Err((
                     StatusCode::TOO_MANY_REQUESTS,
                     format!(
@@ -548,13 +548,30 @@ pub fn routes<R: Rail + 'static>(console: Arc<Console<R>>) -> Router {
         .with_state(console)
 }
 
+/// Most live pages served at once. Each one holds a copy of the replay until
+/// it reads it, so the count is a memory bound, not a courtesy.
+pub const MAX_STREAMS: usize = 300;
+/// Records replayed to a page that just opened; the rest is in the export.
+pub const HELLO_RECORDS: usize = 150;
+static STREAMS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(MAX_STREAMS);
+
 async fn stream<R: Rail + 'static>(State(c): State<Arc<Console<R>>>) -> Response {
+    let Ok(permit) = STREAMS.try_acquire() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [(header::RETRY_AFTER, "30")],
+            "too many pages are open on the live view right now; try again shortly\n",
+        )
+            .into_response();
+    };
     let rx = c.hub.tx.subscribe();
     let hello = c.hello().await;
     let first = futures_util::stream::once(async move {
         Ok::<_, std::convert::Infallible>(SseEvent::default().data(hello.to_string()))
     });
-    let rest = futures_util::stream::unfold(rx, |mut rx| async move {
+    // The permit rides along with the subscription and is returned when the
+    // page goes away and the stream is dropped.
+    let rest = futures_util::stream::unfold((rx, permit), |(mut rx, permit)| async move {
         let data: Arc<str> = match rx.recv().await {
             Ok(msg) => msg,
             // A slow page missed some messages. Tell it to reload rather than
@@ -562,7 +579,7 @@ async fn stream<R: Rail + 'static>(State(c): State<Arc<Console<R>>>) -> Response
             Err(broadcast::error::RecvError::Lagged(_)) => Arc::from(r#"{"ch":"lagged"}"#),
             Err(broadcast::error::RecvError::Closed) => return None,
         };
-        Some((Ok(SseEvent::default().data(&*data)), rx))
+        Some((Ok(SseEvent::default().data(&*data)), (rx, permit)))
     });
     use futures_util::StreamExt;
     Sse::new(first.chain(rest))
@@ -589,12 +606,12 @@ async fn export<R: Rail + 'static>(State(c): State<Arc<Console<R>>>) -> Response
 async fn run<R: Rail + 'static>(
     State(c): State<Arc<Console<R>>>,
     headers: axum::http::HeaderMap,
-    body: Option<Json<RunReq>>,
+    // Required: a bodiless POST carries no content type, which is what lets
+    // another site send one without asking the browser first.
+    Json(b): Json<RunReq>,
 ) -> Response {
-    let (model, scenario) = body
-        .map(|Json(b)| (b.model, b.scenario))
-        .unwrap_or_default();
-    let who = crate::visitor::client(&headers);
+    let (model, scenario) = (b.model, b.scenario);
+    let who = crate::visitor::who(&headers);
     match c.start(who.as_deref(), model, scenario).await {
         Ok(v) => (StatusCode::ACCEPTED, Json(v)).into_response(),
         Err((code, msg)) => (code, Json(json!({ "error": msg }))).into_response(),

@@ -207,8 +207,11 @@ fn apply(rule: &Rule, ledger: &Ledger, minor: u64, now: Timestamp) -> Result<(),
             let n = ledger.outflow_count_since(now.saturating_sub(*window));
             fail(n.saturating_add(1) > *count, RuleId::ExceedsVelocity)
         }
+        // Measured from what is actually free: money earmarked for approved
+        // bills is not there to spend, so spending down to the floor through
+        // it would leave those bills unpayable.
         Rule::BalanceFloor { minor: floor } => fail(
-            ledger.unreserved().saturating_sub(minor) < *floor,
+            ledger.available(now).saturating_sub(minor) < *floor,
             RuleId::BreachesBalanceFloor,
         ),
         Rule::AssetAllowlist { .. } => Ok(()), // checked before either path

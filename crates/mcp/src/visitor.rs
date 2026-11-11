@@ -27,13 +27,82 @@ use std::sync::Mutex;
 /// visitor to count, and only the site-wide cap applies. The other choice,
 /// one shared bucket for everyone, would quietly turn the public demo off
 /// after a few uses the day the header went missing.
+///
+/// An IPv6 address is counted by its /64: one machine is routinely given a
+/// whole /64, so counting single addresses would hand it billions of visitors.
 pub fn client(headers: &HeaderMap) -> Option<String> {
-    headers
+    let raw = headers
         .get("cf-connecting-ip")
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
-        .filter(|v| !v.is_empty() && v.len() <= 64)
-        .map(str::to_string)
+        .filter(|v| !v.is_empty() && v.len() <= 64)?;
+    Some(match raw.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V6(a)) => {
+            let s = a.segments();
+            format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+        }
+        _ => raw.to_string(),
+    })
+}
+
+/// The judges' pass. Judges are given a link, `/judge?key=...`, in the
+/// private testing instructions; it sets a cookie, and a request carrying it
+/// skips the per-visitor allowance and the public daily caps, so a stranger
+/// who used up today's runs cannot lock the people judging out. The cookie
+/// is `SameSite=Strict`, so another site cannot make a browser send it.
+/// Off unless `PORTCULLIS_JUDGE_KEY` is set.
+static JUDGE_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub const JUDGE_COOKIE: &str = "portcullis_judge";
+
+/// The visitor name a judge's request carries into the handlers. It has a
+/// space in it, so no address the edge reports can ever equal it.
+pub const JUDGE: &str = "judge pass";
+
+/// Who is asking: a judge, an address, or nobody the edge named.
+pub fn who(headers: &HeaderMap) -> Option<String> {
+    if is_judge(headers) {
+        Some(JUDGE.to_string())
+    } else {
+        client(headers)
+    }
+}
+
+/// What the cookie holds for a key: its SHA-256, so the key is never echoed.
+pub fn judge_token(key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(format!("portcullis-judge:{key}").as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Set once at startup. A key shorter than 16 characters is refused.
+pub fn set_judge_key(key: &str) -> Result<(), String> {
+    if key.len() < 16 {
+        return Err("PORTCULLIS_JUDGE_KEY must be at least 16 characters".into());
+    }
+    let _ = JUDGE_TOKEN.set(judge_token(key));
+    Ok(())
+}
+
+/// Whether this key is the judges' key.
+pub fn judge_key_matches(key: &str) -> bool {
+    JUDGE_TOKEN.get().is_some_and(|t| *t == judge_token(key))
+}
+
+/// Whether this request carries the judges' cookie.
+pub fn is_judge(headers: &HeaderMap) -> bool {
+    let Some(want) = JUDGE_TOKEN.get() else {
+        return false;
+    };
+    headers
+        .get_all(axum::http::header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .filter_map(|c| c.trim().split_once('='))
+        .any(|(k, v)| k == JUDGE_COOKIE && v == want)
 }
 
 /// So many per visitor per UTC day.
@@ -97,5 +166,17 @@ mod tests {
         assert_eq!(client(&h), None, "client-settable headers ignored");
         h.insert("cf-connecting-ip", "203.0.113.9".parse().unwrap());
         assert_eq!(client(&h).as_deref(), Some("203.0.113.9"));
+    }
+
+    #[test]
+    fn an_ipv6_visitor_is_their_whole_slash_64() {
+        let mut a = HeaderMap::new();
+        a.insert("cf-connecting-ip", "2001:db8:1:2::1".parse().unwrap());
+        let mut b = HeaderMap::new();
+        b.insert("cf-connecting-ip", "2001:db8:1:2:ffff::9".parse().unwrap());
+        let mut c = HeaderMap::new();
+        c.insert("cf-connecting-ip", "2001:db8:1:3::1".parse().unwrap());
+        assert_eq!(client(&a), client(&b));
+        assert_ne!(client(&a), client(&c));
     }
 }

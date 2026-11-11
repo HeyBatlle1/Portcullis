@@ -89,6 +89,70 @@ async fn only_the_desks_own_function_tools_reach_the_model() {
     assert_eq!(tools.len(), 1, "{tools:?}");
     assert_eq!(tools[0]["name"], "execute_query");
     assert_eq!(got["input"], "what happened in siege 3?");
+}
+
+/// The upstream request is rebuilt from an allowlist: what the desk sends
+/// passes, and nothing else does, however it is dressed up.
+#[tokio::test]
+async fn only_conversation_text_and_modest_reasoning_reach_the_model() {
+    let (base, seen) = desk(10).await;
+    let body = json!({
+        "model": "allowed/model",
+        "instructions": "You are the auditor.",
+        "input": [
+            { "type": "message", "role": "user", "content": [
+                { "type": "input_text", "text": "what was refused?" },
+                { "type": "input_image", "image_url": "https://attacker.example/huge.png", "detail": "high" },
+                { "type": "input_file", "file_url": "https://attacker.example/doc.pdf" },
+            ] },
+            { "type": "function_call", "call_id": "c1", "name": "execute_query", "arguments": "{}" },
+            { "type": "function_call_output", "call_id": "c1", "output": "[]" },
+            { "type": "input_video", "video_url": "https://attacker.example/v.mp4" },
+        ],
+        "reasoning": { "effort": "xhigh", "max_tokens": 100000 },
+        "service_tier": "priority",
+        "provider": { "order": ["expensive"] },
+        "trace": { "x": 1 },
+        "metadata": { "a": "b" },
+        "user": "someone",
+        "background": true,
+        "store": true,
+        "tool_choice": { "type": "web_search_preview" },
+        "tools": { "type": "web_search_preview" },
+        "text": { "format": { "type": "text" }, "verbosity": "high" },
+    });
+    assert_eq!(ask(&base, "1.1.1.1", &body).await, 200);
+    let got = seen.lock().unwrap()[0].clone();
+    let mut keys: Vec<&str> = got
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        [
+            "input",
+            "instructions",
+            "max_output_tokens",
+            "model",
+            "reasoning",
+            "store",
+            "stream",
+            "text"
+        ]
+    );
+    assert_eq!(got["store"], false);
+    assert_eq!(got["reasoning"], json!({ "effort": "medium" }));
+    assert_eq!(got["text"], json!({ "format": { "type": "text" } }));
+    let input = got["input"].as_array().unwrap();
+    assert_eq!(input.len(), 3, "the video item is gone: {input:#?}");
+    assert_eq!(
+        input[0]["content"],
+        json!([{ "type": "input_text", "text": "what was refused?" }])
+    );
+    assert!(!got.to_string().contains("attacker.example"));
 
     // A model not on the list never leaves.
     let other = json!({ "model": "expensive/model", "input": "hi" });

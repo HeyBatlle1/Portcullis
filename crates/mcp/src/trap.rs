@@ -192,9 +192,43 @@ async fn caught(State(t): State<Arc<Trap>>) -> Json<serde_json::Value> {
     Json(json!({ "today": today, "total": s.total, "recent": recent, "now": now }))
 }
 
+/// The judges' door: the right key sets the pass cookie and goes to the
+/// console; a wrong one is a probe like any other. The key is plain
+/// letters, digits, `-` and `_`, so the query needs no decoding.
+async fn judge(State(t): State<Arc<Trap>>, req: Request) -> Response {
+    let key = req
+        .uri()
+        .query()
+        .unwrap_or("")
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("key="))
+        .unwrap_or("")
+        .to_string();
+    if crate::visitor::judge_key_matches(&key) {
+        let cookie = format!(
+            "{}={}; Path=/; Max-Age=3888000; HttpOnly; Secure; SameSite=Strict",
+            crate::visitor::JUDGE_COOKIE,
+            crate::visitor::judge_token(&key)
+        );
+        (
+            StatusCode::SEE_OTHER,
+            [
+                (header::SET_COOKIE, cookie),
+                (header::LOCATION, "/console".to_string()),
+                (header::CACHE_CONTROL, "no-store".to_string()),
+            ],
+        )
+            .into_response()
+    } else {
+        t.note("/judge");
+        answer("/judge")
+    }
+}
+
 pub fn routes(t: Arc<Trap>) -> Router {
     Router::new()
         .route("/caught", get(caught))
+        .route("/judge", get(judge))
         .route("/robots.txt", get(|| async { ROBOTS }))
         .fallback(fallback)
         .with_state(t)

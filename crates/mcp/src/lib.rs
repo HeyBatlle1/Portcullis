@@ -22,6 +22,7 @@
 #![forbid(unsafe_code)]
 
 pub mod console;
+pub mod edge;
 pub mod money;
 pub mod seed;
 pub mod siege;
@@ -55,6 +56,14 @@ use tokio::sync::Mutex;
 /// Longest `purpose` accepted. It is untrusted text that lands in the audit
 /// log; there is no reason to let an agent write a novel into it.
 pub const MAX_PURPOSE: usize = 1000;
+/// Longest recipient: an email address is at most 254 bytes.
+pub const MAX_RECIPIENT: usize = 254;
+/// Longest currency code the gate will log.
+pub const MAX_CURRENCY: usize = 8;
+/// Longest bill id the gate will log.
+pub const MAX_COMMITMENT: usize = 64;
+/// Largest MCP request body.
+pub const MAX_MCP_BODY: usize = 64 * 1024;
 
 /// How many commitments `list_commitments` shows, newest kept.
 pub const LISTED_COMMITMENTS: usize = 10;
@@ -253,6 +262,25 @@ that refused it; re-proposing the same thing will be refused the same way."
                 None,
             ));
         }
+        // Every field is logged and shown, so every field is bounded, not
+        // just the one meant for prose. Refused here, before the kernel and
+        // the log, like an over-long purpose.
+        let too_long = |what: &str, v: &str, max: usize| {
+            (v.len() > max).then(|| {
+                ErrorData::invalid_params(format!("{what} is limited to {max} bytes"), None)
+            })
+        };
+        if let Some(e) = too_long("recipient", &p.recipient, MAX_RECIPIENT)
+            .or_else(|| too_long("currency", &p.currency, MAX_CURRENCY))
+            .or_else(|| too_long("amount", &p.amount, MAX_CURRENCY * 4))
+            .or_else(|| {
+                p.commitment
+                    .as_deref()
+                    .and_then(|c| too_long("commitment", c, MAX_COMMITMENT))
+            })
+        {
+            return Err(e);
+        }
         let ledger_asset = self.gate.with_state(|s| s.ledger.asset.clone()).await;
         // A foreign currency is proposed as-is so the kernel refuses it by
         // name and it lands in the log, rather than vanishing as a protocol error.
@@ -264,6 +292,12 @@ that refused it; re-proposing the same thing will be refused the same way."
         let minor = money::parse_amount(&p.amount, asset.decimals).map_err(|e| {
             ErrorData::invalid_params(format!("amount {:?}: {e:?}", p.amount), None)
         })?;
+        if minor == 0 {
+            return Err(ErrorData::invalid_params(
+                "amount must be more than zero",
+                None,
+            ));
+        }
 
         let now = (self.clock)();
         let proposal = Proposal {
@@ -422,7 +456,10 @@ pub fn app<R: Rail + 'static>(
     use rmcp::transport::streamable_http_server::{
         session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
     };
-    let config = StreamableHttpServerConfig::default().with_allowed_hosts(allowed_hosts);
+    // A tool call is a few hundred bytes; rmcp's default would take 4 MB.
+    let config = StreamableHttpServerConfig::default()
+        .with_allowed_hosts(allowed_hosts)
+        .with_max_request_body_bytes(MAX_MCP_BODY);
     let mcp: StreamableHttpService<Portcullis<R>, LocalSessionManager> =
         StreamableHttpService::new(move || Ok(server.clone()), Default::default(), config);
     axum::Router::new()

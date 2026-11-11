@@ -239,14 +239,14 @@ impl<R: Rail + 'static> Siege<R> {
                 s.day = day;
                 s.today = 0;
             }
-            if s.today >= self.cfg.daily {
+            if who != Some(crate::visitor::JUDGE) && s.today >= self.cfg.daily {
                 return Err(err(
                     StatusCode::TOO_MANY_REQUESTS,
                     "today's sieges are used up",
                 ));
             }
             // Last, so a start refused for any other reason costs nothing.
-            if !self.visitors.take(who, now) {
+            if who != Some(crate::visitor::JUDGE) && !self.visitors.take(who, now) {
                 return Err(err(
                     StatusCode::TOO_MANY_REQUESTS,
                     format!(
@@ -683,13 +683,11 @@ async fn state<R: Rail + 'static>(State(s): State<Arc<Siege<R>>>) -> Json<Value>
 async fn start<R: Rail + 'static>(
     State(s): State<Arc<Siege<R>>>,
     headers: HeaderMap,
-    body: Option<Json<StartReq>>,
+    // Required, for the same reason as the console's run.
+    Json(b): Json<StartReq>,
 ) -> Response {
-    let who = crate::visitor::client(&headers);
-    match s
-        .start(who.as_deref(), body.and_then(|Json(b)| b.roster))
-        .await
-    {
+    let who = crate::visitor::who(&headers);
+    match s.start(who.as_deref(), b.roster).await {
         Ok(v) => (StatusCode::ACCEPTED, Json(v)).into_response(),
         Err((c, m)) => (c, Json(json!({ "error": m }))).into_response(),
     }
