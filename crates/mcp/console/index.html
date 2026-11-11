@@ -3,348 +3,402 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:">
+<meta name="color-scheme" content="light dark">
 <title>Portcullis console</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Libre+Franklin:wght@400;500;600;700;900&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/ag-grid-community@36.2.0/dist/ag-grid-community.min.js"></script>
 <style>
 :root {
-  /* the agent's side: a night-shift monitor */
-  --a-bg: #121820;
-  --a-panel: #19212b;
-  --a-line: #26313d;
-  --a-ink: #cdd6df;
-  --a-dim: #7d8a97;
-  --a-amber: #f0a63a;
-  --a-green: #74c98f;
-  /* the gate's side: check security paper */
-  --g-paper: #e7eee9;
-  --g-sheet: #f3f7f4;
-  --g-ink: #1d2b4f;
-  --g-soft: #52607d;
-  --g-rule: #b9c6c0;
-  --g-red: #b3262d;
-  --g-ok: #1f5f45;
-  --mono: "JetBrains Mono", ui-monospace, monospace;
-  --sans: "Libre Franklin", system-ui, sans-serif;
+  --bg: #f6f7f5;
+  --panel: #ffffff;
+  --sunk: #eef1f3;
+  --ink: #15202e;
+  --soft: #586374;
+  --faint: #8a93a1;
+  --rule: #dde2e7;
+  --brand: #1d2b4f;
+  --ok: #16653f;
+  --ok-bg: #e6f2eb;
+  --no: #b42318;
+  --no-bg: #fbeceb;
+  --warn: #8a5300;
+  --focus: #2f6fdd;
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1419; --panel: #161c23; --sunk: #1c242d; --ink: #dfe5ec; --soft: #9aa5b3; --faint: #6d7886;
+    --rule: #29323d; --brand: #c9d6f2; --ok: #5fc28d; --ok-bg: #15291f; --no: #ff7b6e; --no-bg: #2e1715;
+    --warn: #e0a24a; --focus: #7aa7ff;
+  }
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
-body {
-  background: var(--g-paper);
-  color: var(--g-ink);
-  font: 14px/1.45 var(--sans);
-  font-variant-numeric: tabular-nums;
-}
-button, select { font: inherit; }
-:focus-visible { outline: 2px solid var(--a-amber); outline-offset: 2px; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); font-variant-numeric: tabular-nums; }
+a { color: inherit; text-underline-offset: 2px; }
+code, pre, .mono { font-family: var(--mono); font-size: 0.86em; }
+button, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+h1, h2, h3 { margin: 0; line-height: 1.25; }
+h2 { font-size: 15px; font-weight: 650; }
+h2 small { font-weight: 400; color: var(--soft); font-size: 13px; margin-left: 6px; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+.fine { color: var(--soft); font-size: 13px; margin: 8px 0 0; }
 
-.app {
-  height: 100vh;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
-  grid-template-rows: auto minmax(0, 1fr) minmax(200px, 30vh);
-  grid-template-areas: "bar bar" "agent gate" "ledger ledger";
-}
+/* ── top bar ─────────────────────────────────────────────────────────── */
+.top { border-bottom: 1px solid var(--rule); background: var(--panel); position: sticky; top: 0; z-index: 5; }
+.top .wrap { display: flex; align-items: center; gap: 22px; height: 52px; }
+.mark { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 16px; text-decoration: none; color: var(--brand); }
+.mark svg { width: 18px; height: 21px; }
+.top nav { display: flex; gap: 18px; font-size: 14px; }
+.top nav a { text-decoration: none; color: var(--soft); }
+.top nav a[aria-current] { color: var(--ink); font-weight: 600; }
+.top nav a:hover { color: var(--ink); }
+.top .right { margin-left: auto; display: flex; align-items: center; gap: 16px; font-size: 13px; }
+.chip { font: 12px/1 var(--mono); padding: 5px 8px; border-radius: 4px; border: 1px solid var(--rule); color: var(--soft); text-decoration: none; white-space: nowrap; }
+.chip.ok { color: var(--ok); border-color: currentColor; }
+.chip.bad { color: var(--no); border-color: currentColor; }
 
-/* ── top band ─────────────────────────────────────────────── */
-.bar {
-  grid-area: bar;
-  background: var(--g-ink);
-  color: var(--g-sheet);
-  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
-  padding: 12px 20px;
-}
-.mark { display: flex; align-items: center; gap: 10px; }
-.mark svg { width: 26px; height: 30px; }
-.mark b { font-size: 20px; font-weight: 700; letter-spacing: .01em; }
-.bar p { margin: 0; color: #b9c4dd; max-width: 44ch; font-size: 13px; }
-.controls { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.controls label { color: #b9c4dd; }
-.controls select {
-  background: #2a3a63; color: var(--g-sheet); border: 1px solid #3d5085;
-  border-radius: 4px; padding: 6px 8px;
-}
-.run {
-  background: var(--a-amber); color: #1b1407; border: 0; border-radius: 4px;
-  padding: 8px 16px; font-weight: 700; cursor: pointer;
-}
-.run:disabled { background: #50607f; color: #c7cfe0; cursor: default; }
-.notice { color: var(--a-amber); flex-basis: 100%; }
-.controls a.siege { color: #f0c36a; font-weight: 600; white-space: nowrap; }
+/* ── intro ───────────────────────────────────────────────────────────── */
+.intro { padding: 32px 0 0; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 40px; align-items: start; }
+.intro h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.015em; }
+.lede { color: var(--soft); font-size: 16px; margin: 12px 0 0; max-width: 60ch; }
+.lede b { color: var(--ink); font-weight: 600; }
+.flow { list-style: none; margin: 4px 0 0; padding: 0; font-size: 13.5px; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); }
+.flow li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 8px 14px; border-top: 1px solid var(--rule); }
+.flow li:first-child { border-top: 0; }
+.flow .n { font: 600 12px/1.9 var(--mono); color: var(--faint); }
+.flow b { font-weight: 600; }
+.flow span { color: var(--soft); }
+
+/* ── try it ──────────────────────────────────────────────────────────── */
+.cta { display: flex; gap: 16px; align-items: center; margin-top: 22px; }
+.cta .btn { flex: none; padding: 10px 16px; }
+.cta span { color: var(--soft); font-size: 13.5px; max-width: 46ch; }
+.facts { margin: 28px 0 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); }
+.facts > div { padding: 10px 16px; border-left: 1px solid var(--rule); min-width: 0; }
+.facts > div:first-child { border-left: 0; }
+.facts .k { font-size: 12.5px; color: var(--faint); }
+.facts .v { font-size: 17px; font-weight: 600; margin-top: 2px; }
+.facts .d { font-size: 12.5px; color: var(--soft); margin-top: 2px; overflow-wrap: anywhere; }
+.facts .n-bad { color: var(--no); } .facts .n-ok { color: var(--ok); }
+.facts a.v { display: block; color: inherit; text-decoration: none; }
+.facts a.v.ok { color: var(--ok); } .facts a.v.bad { color: var(--no); }
+.try { margin: 16px 0 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 16px; }
+.try .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.try .label { font-weight: 600; font-size: 14px; margin-right: 4px; }
+.try select { background: var(--panel); border: 1px solid var(--rule); border-radius: 5px; padding: 6px 8px; min-width: 0; max-width: 100%; }
+.try p { margin: 8px 0 0; color: var(--soft); font-size: 13.5px; }
+.btn { border: 1px solid var(--rule); background: var(--panel); border-radius: 5px; padding: 6px 14px; cursor: pointer; font-weight: 600; }
+.btn:hover:not(:disabled) { border-color: var(--soft); }
+.btn.primary { background: var(--brand); color: var(--bg); border-color: var(--brand); }
+.btn:disabled { opacity: .5; cursor: default; }
+.notice { color: var(--warn) !important; }
 .notice:empty { display: none; }
+.shared { margin-top: 8px; }
 
-/* ── the agent ────────────────────────────────────────────── */
-.agent {
-  grid-area: agent;
-  background: var(--a-bg); color: var(--a-ink);
-  font: 13px/1.55 var(--mono);
-  display: grid; grid-template-rows: auto auto minmax(0, 1fr);
-  min-height: 0;
-  border-right: 6px solid var(--g-ink);
-}
-.agent header { padding: 14px 18px 10px; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
-.agent header h2 { font-size: 14px; margin: 0; color: var(--a-ink); font-weight: 700; }
-.agent header .model { color: var(--a-dim); }
-.agent header .status { margin-left: auto; color: var(--a-dim); }
-.agent header .status.live { color: var(--a-amber); }
+/* ── the run ─────────────────────────────────────────────────────────── */
+section.block { margin: 28px 0 0; scroll-margin-top: 64px; }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.head .aside { margin-left: auto; color: var(--soft); font-size: 13px; }
+.status { font: 12px var(--mono); color: var(--faint); }
+.status.live { color: var(--warn); }
+.pane { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; }
 
-.eyes {
-  margin: 0 18px 12px;
-  border: 1px solid var(--a-line); border-radius: 6px;
-  background: var(--a-panel);
-  height: 26vh; min-height: 160px;
-  display: grid; grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-}
-.eyes .chrome { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--a-line); color: var(--a-dim); font-size: 12px; }
-.eyes .chrome i { width: 7px; height: 7px; border-radius: 50%; background: var(--a-line); display: inline-block; }
-.eyes .chrome i.on { background: var(--a-green); box-shadow: 0 0 6px var(--a-green); }
-.eyes .screen { overflow: auto; padding: 10px 14px; }
-.eyes .screen .head { color: var(--a-dim); border-bottom: 1px dashed var(--a-line); padding-bottom: 6px; margin-bottom: 8px; }
-.eyes .screen .head div span { color: var(--a-ink); }
-.eyes .screen .subject { color: var(--a-ink); font-weight: 700; }
-.eyes .screen pre { margin: 0; white-space: pre-wrap; font: inherit; color: var(--a-green); }
-.eyes .empty { color: var(--a-dim); padding: 18px 14px; }
+.eyes { border-bottom: 1px solid var(--rule); }
+.eyes summary { padding: 9px 14px; cursor: pointer; font-size: 13px; color: var(--soft); list-style-position: inside; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.eyes summary b { color: var(--ink); font-weight: 600; }
+.eyes .screen { padding: 4px 14px 12px; max-height: 260px; overflow: auto; font: 12.5px/1.55 var(--mono); }
+.eyes .screen .meta { color: var(--soft); }
+.eyes .screen pre { margin: 8px 0 0; white-space: pre-wrap; font: inherit; }
+.eyes .empty { color: var(--soft); }
 
-.log { overflow: auto; padding: 2px 18px 24px; min-height: 0; border-top: 1px solid var(--a-line); margin: 0; }
-.log .said { color: var(--a-amber); margin: 10px 0; white-space: pre-wrap; }
-.log .world { color: var(--a-dim); margin: 6px 0; }
-.log .world b { color: var(--a-green); font-weight: 500; }
-.log .run-start { color: var(--a-dim); border-top: 1px solid var(--a-line); margin-top: 14px; padding-top: 10px; }
-.log .fail { color: #ff8a80; }
-.log .done { color: var(--a-dim); margin-top: 12px; }
-/* a call to the gate, drawn in the gate's own material */
-.slip {
-  background: var(--g-sheet); color: var(--g-ink);
-  font-family: var(--sans); font-size: 13px;
-  border-radius: 3px; margin: 10px 0; padding: 8px 12px;
-  border-left: 4px solid var(--g-soft);
-}
-.slip .tool { font: 500 12px var(--mono); color: var(--g-soft); }
-.slip dl { display: grid; grid-template-columns: max-content 1fr; gap: 1px 12px; margin: 4px 0 0; }
-.slip dt { color: var(--g-soft); }
-.slip dd { margin: 0; overflow-wrap: anywhere; }
-.slip .answer { margin-top: 6px; font-weight: 700; }
-.slip.refused { border-left-color: var(--g-red); }
-.slip.refused .answer { color: var(--g-red); }
-.slip.allowed { border-left-color: var(--g-ok); }
-.slip.allowed .answer { color: var(--g-ok); }
-.owner {
-  border: 1px solid var(--a-amber); border-radius: 4px; padding: 10px 12px; margin: 14px 0;
-  color: var(--a-ink); white-space: pre-wrap;
-}
-.owner strong { color: var(--a-amber); display: block; margin-bottom: 4px; font-weight: 500; }
-/* Dana's side of the conversation */
-.dana {
-  border: 1px solid var(--a-green); border-radius: 4px; padding: 10px 12px; margin: 14px 0 14px 28px;
-  color: var(--a-ink); white-space: pre-wrap;
-}
-.dana strong { color: var(--a-green); display: block; margin-bottom: 4px; font-weight: 500; }
-.ask { margin: 10px 0 14px 28px; padding: 10px 12px; border: 1px dashed var(--a-green); border-radius: 4px; }
-.ask .who { color: var(--a-green); margin-bottom: 8px; }
-.ask .who span { color: var(--a-dim); }
-.ask button {
-  display: block; width: 100%; text-align: left; margin: 6px 0 0; padding: 8px 10px;
-  background: var(--a-panel); color: var(--a-ink); border: 1px solid var(--a-line); border-radius: 4px;
-  font: inherit; cursor: pointer;
-}
-.ask button:hover:not(:disabled) { border-color: var(--a-green); }
+.log { padding: 4px 14px 14px; max-height: 620px; overflow: auto; font-size: 14px; }
+.log > * { margin: 10px 0 0; }
+.log .run-start { font: 12px var(--mono); color: var(--faint); padding-top: 4px; }
+.log .said { white-space: pre-wrap; }
+.log .world { font: 12.5px var(--mono); color: var(--soft); }
+.log .fail { color: var(--no); }
+.log .done { font: 12px var(--mono); color: var(--faint); border-top: 1px dashed var(--rule); padding-top: 8px; }
+.log .reminded { font-size: 13px; color: var(--soft); font-style: italic; }
+.call { border: 1px solid var(--rule); border-left: 3px solid var(--faint); border-radius: 4px; padding: 8px 10px; background: var(--sunk); font: 12.5px/1.5 var(--mono); }
+.call .tool { font-weight: 600; }
+.call dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px 12px; margin: 4px 0 0; }
+.call dt { color: var(--soft); }
+.call dd { margin: 0; overflow-wrap: anywhere; }
+.call .answer { margin-top: 6px; font-family: var(--sans); font-size: 13.5px; font-weight: 600; }
+.call.refused { border-left-color: var(--no); }
+.call.refused .answer { color: var(--no); }
+.call.allowed { border-left-color: var(--ok); }
+.call.allowed .answer { color: var(--ok); }
+.msg { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; }
+.msg strong { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--soft); margin-bottom: 4px; }
+.msg.dana { margin-left: 24px; border-color: var(--ok); }
+.ask { margin-left: 24px; border: 1px solid var(--warn); border-radius: 6px; padding: 10px 12px; }
+.ask .who { font-weight: 600; }
+.ask .who span { font-weight: 400; color: var(--soft); font-family: var(--mono); font-size: 12px; margin-left: 6px; }
+.ask button { display: block; width: 100%; text-align: left; margin: 8px 0 0; padding: 8px 10px; background: var(--panel); border: 1px solid var(--rule); border-radius: 5px; cursor: pointer; }
+.ask button:hover:not(:disabled) { border-color: var(--soft); }
 .ask button:disabled { opacity: .5; cursor: default; }
-.ask button b { color: var(--a-green); font-weight: 500; }
-.ask .note { color: var(--a-dim); margin-top: 8px; }
-.howto { margin: 0; padding-left: 20px; color: var(--a-ink); line-height: 1.7; }
-.howto b { color: var(--a-green); font-weight: 500; }
-.sched-note { color: var(--g-soft); font-size: 13px; margin: -4px 0 8px; }
+.ask .note { color: var(--soft); font-size: 13px; margin-top: 8px; }
+.ask .note:empty { display: none; }
+.placeholder { color: var(--soft); padding: 18px 14px; font-size: 14px; }
 
-/* ── the gate ─────────────────────────────────────────────── */
-.gate {
-  grid-area: gate;
-  min-height: 0; overflow: auto;
-  padding: 16px 22px 28px;
-  background-color: var(--g-paper);
-  background-image:
-    repeating-radial-gradient(circle at 0 0, transparent 0 11px, rgba(29,43,79,.035) 11px 12px),
-    repeating-radial-gradient(circle at 100% 100%, transparent 0 11px, rgba(31,95,69,.03) 11px 12px);
-}
-.gate h2 { font-size: 13px; font-weight: 600; color: var(--g-soft); margin: 22px 0 8px; }
-.money { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border: 1px solid var(--g-rule); background: var(--g-sheet); }
-.money div { padding: 10px 12px; border-left: 1px solid var(--g-rule); }
+/* decisions */
+.decisions { max-height: 680px; overflow: auto; }
+.dec { padding: 12px 14px; border-top: 1px solid var(--rule); }
+.dec:first-child { border-top: 0; }
+.dec.fresh { animation: fresh 1.6s ease-out; }
+@keyframes fresh { from { background: var(--sunk); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .dec.fresh { animation: none; } }
+.dec .line { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.badge { font: 600 11px/1 var(--sans); text-transform: uppercase; letter-spacing: .05em; padding: 4px 6px; border-radius: 3px; }
+.badge.no { color: var(--no); background: var(--no-bg); }
+.badge.ok { color: var(--ok); background: var(--ok-bg); }
+.dec .amt { font-weight: 650; font-size: 16px; }
+.dec .to { font: 13px var(--mono); color: var(--soft); overflow-wrap: anywhere; min-width: 0; }
+.dec .rule { margin-top: 6px; font-size: 14px; }
+.dec .rule code { color: var(--no); }
+.dec .meta { margin-top: 4px; font-size: 12.5px; color: var(--soft); }
+.dec .warn { margin-top: 6px; font-size: 13px; color: var(--warn); }
+.dec details { margin-top: 6px; font-size: 13px; color: var(--soft); }
+.dec details summary { cursor: pointer; }
+.dec details q { display: block; margin: 4px 0 0 14px; color: var(--ink); }
+.track { margin-top: 8px; display: flex; gap: 4px; flex-wrap: wrap; font-size: 12px; align-items: center; color: var(--faint); }
+.track span { padding: 2px 7px; border-radius: 3px; border: 1px solid var(--rule); }
+.track span.done { color: var(--ok); border-color: var(--ok); }
+.track span.bad { color: var(--no); border-color: var(--no); }
+.track i { font-style: normal; }
+
+/* ── the gate's state ────────────────────────────────────────────────── */
+.money { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; }
+.money div { padding: 12px 14px; border-left: 1px solid var(--rule); }
 .money div:first-child { border-left: 0; }
-.money span { display: block; color: var(--g-soft); font-size: 12px; }
-.money b { font-size: 20px; font-weight: 600; }
-.money .avail b { color: var(--g-ok); }
-.policyline { color: var(--g-soft); font-size: 12px; margin-top: 6px; }
-.policyline code { font-family: var(--mono); font-size: 11px; }
+.money dt { font-size: 12.5px; color: var(--soft); }
+.money dd { margin: 2px 0 0; font-size: 20px; font-weight: 650; }
+.money .avail dd { color: var(--ok); }
+.rules { list-style: none; margin: 0; padding: 4px 14px; font-size: 14px; }
+.rules li { padding: 7px 0; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.rules li span { min-width: 0; overflow-wrap: anywhere; }
+.rules li:first-child { border-top: 0; }
+.rules li code { color: var(--faint); margin-left: auto; white-space: nowrap; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; font-weight: 500; color: var(--soft); padding: 8px 12px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 8px 12px; border-top: 1px solid var(--rule); vertical-align: baseline; }
+td.num, th.num { text-align: right; white-space: nowrap; }
+td.addr { font: 12.5px var(--mono); overflow-wrap: anywhere; }
+tr.closed td { color: var(--faint); }
+.tablebox { overflow-x: auto; }
 
-.decisions { display: grid; gap: 12px; }
-.decisions .empty, .commitments .empty { color: var(--g-soft); background: var(--g-sheet); border: 1px dashed var(--g-rule); padding: 14px; }
-.card {
-  position: relative; background: var(--g-sheet); border: 1px solid var(--g-rule);
-  padding: 12px 14px 12px; overflow: hidden;
-}
-.card .amt { font-size: 24px; font-weight: 700; }
-.card .to { overflow-wrap: anywhere; }
-.card .to em { font-style: normal; color: var(--g-soft); }
-.card .meta { color: var(--g-soft); font-size: 12px; margin-top: 4px; }
-.card .why { margin-top: 8px; font-size: 13px; color: var(--g-soft); max-width: 60ch; }
-.card .why q { color: var(--g-ink); }
-.card .rule { margin-top: 8px; font-weight: 600; color: var(--g-red); }
-.card .track { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
-.card .track span { padding: 2px 8px; border: 1px solid var(--g-rule); color: var(--g-soft); border-radius: 2px; }
-.card .track span.done { border-color: var(--g-ok); color: var(--g-ok); }
-.card .track span.bad { border-color: var(--g-red); color: var(--g-red); }
-.stamp {
-  position: absolute; right: 14px; top: 12px;
-  font: 900 22px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase;
-  padding: 6px 10px 5px; border: 3px solid currentColor; border-radius: 4px;
-  transform: rotate(-9deg); opacity: .88; filter: url(#ink);
-  pointer-events: none;
-}
-.stamp.refused { color: var(--g-red); }
-.stamp.allowed { color: var(--g-ok); font-size: 18px; }
-.stamp.land { animation: land .22s cubic-bezier(.2,.8,.3,1.2) both; }
-@keyframes land {
-  from { transform: rotate(-4deg) scale(1.7); opacity: 0; }
-  to   { transform: rotate(-9deg) scale(1);   opacity: .88; }
-}
-@media (prefers-reduced-motion: reduce) { .stamp.land { animation: none; } }
+/* ── the chain ───────────────────────────────────────────────────────── */
+.verdict { font-weight: 600; font-size: 14px; }
+.verdict.ok { color: var(--ok); }
+.verdict.bad { color: var(--no); }
+.headhash { font: 12px var(--mono); color: var(--soft); overflow-wrap: anywhere; }
+.howto { margin: 0 0 12px; font-size: 13.5px; color: var(--soft); }
+.howto summary { cursor: pointer; }
+.howto pre { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+.ledger td { cursor: pointer; }
+.ledger td.seq { color: var(--faint); font: 12.5px var(--mono); width: 1%; }
+.ledger td.time { white-space: nowrap; color: var(--soft); width: 1%; }
+.ledger td.kind { font: 12.5px var(--mono); width: 1%; }
+.ledger td.what { overflow-wrap: anywhere; }
+.ledger td.hash { font: 12px var(--mono); color: var(--faint); white-space: nowrap; width: 1%; }
+.ledger tr.refused td.kind { color: var(--no); }
+.ledger tr.refused td:first-child { box-shadow: inset 3px 0 0 var(--no); }
+.ledger tbody tr.rec:hover td { background: var(--sunk); }
+.ledger tr.rec[aria-expanded="true"] td { background: var(--sunk); }
+.ledger tr.inspect td { cursor: auto; background: var(--sunk); padding: 4px 12px 14px; }
+.inspect pre { font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; }
+.inspect .check { margin-top: 10px; font-weight: 600; font-size: 13.5px; }
+.inspect .check.ok { color: var(--ok); }
+.inspect .check.bad { color: var(--no); }
+.more { margin: 10px 0 0; }
 
-.commitments table, .rules ul { width: 100%; }
-.commitments table { border-collapse: collapse; background: var(--g-sheet); border: 1px solid var(--g-rule); font-size: 13px; }
-.commitments th { text-align: left; font-weight: 500; color: var(--g-soft); padding: 6px 10px; border-bottom: 1px solid var(--g-rule); }
-.commitments td { padding: 6px 10px; border-bottom: 1px solid #d5ded9; }
-.commitments td:first-child { white-space: nowrap; }
-.commitments td:nth-child(2) { overflow-wrap: anywhere; }
-.commitments td.num { text-align: right; white-space: nowrap; }
-.commitments tr.closed td { color: #8792a6; }
-.rules ul { list-style: none; padding: 0; margin: 0; columns: 2; column-gap: 24px; font-size: 13px; }
-.rules li { break-inside: avoid; padding: 3px 0; border-bottom: 1px solid #d5ded9; }
-
-/* ── the ledger ───────────────────────────────────────────── */
-.ledger {
-  grid-area: ledger; min-height: 0;
-  border-top: 6px solid var(--g-ink);
-  background: var(--g-sheet);
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 30%);
-  grid-template-rows: auto minmax(0, 1fr);
-}
-.ledger .chainbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 8px 16px; border-bottom: 1px solid var(--g-rule); }
-.ledger .chainbar h2 { margin: 0; font-size: 14px; font-weight: 700; }
-.verdict { font-weight: 600; }
-.verdict.ok { color: var(--g-ok); }
-.verdict.bad { color: var(--g-red); }
-.headhash { font: 12px var(--mono); color: var(--g-soft); overflow-wrap: anywhere; }
-.chainbar a, .chainbar button { color: var(--g-ink); background: none; border: 1px solid var(--g-rule); border-radius: 3px; padding: 3px 10px; cursor: pointer; text-decoration: none; font-size: 13px; }
-.chainbar .spacer { flex: 1; }
-#grid { min-height: 0; height: 100%; }
-.inspect { border-left: 1px solid var(--g-rule); overflow: auto; padding: 10px 14px; font-size: 12px; min-height: 0; }
-.inspect h3 { margin: 0 0 6px; font-size: 13px; }
-.inspect pre { font: 11px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; color: var(--g-ink); }
-.inspect .check { margin-top: 8px; font-weight: 600; }
-.inspect .hint { color: var(--g-soft); }
-.fiction { color: var(--g-soft); font-size: 12px; }
+footer { margin: 48px 0 0; padding: 18px 0 40px; border-top: 1px solid var(--rule); color: var(--soft); font-size: 13px; display: flex; gap: 18px; flex-wrap: wrap; }
 
 @media (max-width: 900px) {
-  .app { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto;
-         grid-template-areas: "bar" "agent" "gate" "ledger"; }
-  .agent { border-right: 0; border-bottom: 6px solid var(--g-ink); }
-  .log { max-height: 60vh; }
+  .wrap { padding: 0 16px; }
+  .top .wrap { gap: 14px; }
+  .top .right .gh { display: none; }
+  .intro { grid-template-columns: minmax(0, 1fr); gap: 20px; padding-top: 24px; }
+  .intro h1 { font-size: 24px; }
+  .cta { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .try select { flex: 1 1 100%; }
+  .facts { grid-template-columns: minmax(0, 1fr); }
+  .facts > div { border-left: 0; border-top: 1px solid var(--rule); }
+  .facts > div:first-child { border-top: 0; }
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  .log, .decisions { max-height: 70vh; }
   .money { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .money div:nth-child(3) { border-left: 0; }
-  .money div:nth-child(n+3) { border-top: 1px solid var(--g-rule); }
-  .rules ul { columns: 1; }
-  .commitments th:last-child, .commitments td:last-child { display: none; }
-  .ledger { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 360px auto; }
-  .inspect { border-left: 0; border-top: 1px solid var(--g-rule); }
-  .bar, .gate { padding-left: 16px; padding-right: 16px; }
+  .money div:nth-child(n+3) { border-top: 1px solid var(--rule); }
+  .bills thead { display: none; }
+  .bills tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; border-top: 1px solid var(--rule); padding: 8px 12px; }
+  .bills tr:first-child { border-top: 0; }
+  .bills td { border: 0; padding: 1px 0; }
+  .bills td:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+  .bills td:nth-child(4) { grid-row: 3; }
+  .bills td:nth-child(5) { grid-row: 3; text-align: right; }
+  .bills td:nth-child(5)::before { content: "until "; color: var(--faint); }
+  .ledger th.time, .ledger td.time, .ledger th.hash, .ledger td.hash { display: none; }
+}
+@media (max-width: 480px) {
+  .top nav { gap: 12px; }
+  .top .chip { display: none; }
 }
 </style>
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <filter id="ink">
-    <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="7" result="n"/>
-    <feDisplacementMap in="SourceGraphic" in2="n" scale="1.3" result="d"/>
-    <feComponentTransfer in="n" result="speck"><feFuncA type="discrete" tableValues="0 0 0 0 0 0 1 0 0 0 0 0 0 0"/></feComponentTransfer>
-    <feComposite in="d" in2="speck" operator="out"/>
-  </filter>
-</svg>
-
-<div class="app">
-  <section class="bar" aria-label="Portcullis">
-    <div class="mark">
-      <svg viewBox="0 0 26 30" aria-hidden="true"><path d="M2 3h22M2 3v25M24 3v25M7 3v27M13 3v27M19 3v27M2 11h22M2 19h22" stroke="#e7eee9" stroke-width="2.2" fill="none" stroke-linecap="square"/><path d="M5 30l2-3 2 3M11 30l2-3 2 3M17 30l2-3 2 3" stroke="#e7eee9" stroke-width="1.6" fill="none"/></svg>
-      <b>Portcullis</b>
+<header class="top">
+  <div class="wrap">
+    <a class="mark" href="/console">
+      <svg viewBox="0 0 26 30" aria-hidden="true"><path d="M2 3h22M2 3v25M24 3v25M7 3v27M13 3v27M19 3v27M2 11h22M2 19h22" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="square"/></svg>
+      Portcullis
+    </a>
+    <nav aria-label="Pages">
+      <a href="/console" aria-current="page">Console</a>
+      <a href="/siege">Siege</a>
+      <a href="/audit">Audit desk</a>
+    </nav>
+    <div class="right">
+      <a class="gh" href="https://github.com/HeyBatlle1/Portcullis">Source</a>
+      <a class="chip" id="chip" href="#chain">chain: loading</a>
     </div>
-    <p>An AI agent works the accounts-payable inbox. A gate with no model inside it decides what gets paid.</p>
-    <div class="controls">
-      <label for="scenario">Scenario</label>
-      <select id="scenario"></select>
-      <label for="model">Agent</label>
-      <select id="model"></select>
-      <button class="run" id="run" disabled>Run the inbox</button>
-      <a class="siege" href="/siege">Eight agents at once: Siege</a>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="intro">
+    <div>
+      <h1>An AI agent can propose a payment. It can't make one.</h1>
+      <p class="lede">The agent works an accounts-payable inbox over MCP. Every payment it asks for goes to a
+        <b>deterministic policy kernel with no model in it</b>, which allows or refuses it by rule. Only an allowed
+        payment reaches <b>PayPal</b>. Every decision is written to a hash chain, and this page re-checks that chain
+        in your browser.</p>
+      <div class="cta">
+        <button class="btn primary" id="runHostile" disabled>Run the compromised agent</button>
+        <span>A script holding the agent's real token tries six ways to steal or short-pay an approved bill. No model, a few seconds. Six different rules refuse it.</span>
+      </div>
+    </div>
+    <ol class="flow" aria-label="How a payment moves">
+      <li><span class="n">1</span><div><b>Agent</b> <span>reads mail and calls <code>propose_payment</code>. It never sees the rules.</span></div></li>
+      <li><span class="n">2</span><div><b>Kernel</b> <span>checks payee, amount, bill, limits and balance. Rust, no network, no prompt.</span></div></li>
+      <li><span class="n">3</span><div><b>PayPal</b> <span>Payouts sends only what was allowed, keyed so a retry can't pay twice.</span></div></li>
+      <li><span class="n">4</span><div><b>Audit chain</b> <span>records every step as SHA-256 linked records, verified below.</span></div></li>
+    </ol>
+  </section>
+
+  <section class="facts" aria-label="What the record shows so far">
+    <div>
+      <div class="k">Gate decisions on record</div>
+      <div class="v" id="fDecisions">–</div>
+      <div class="d" id="fRules"></div>
+    </div>
+    <div>
+      <div class="k">PayPal sandbox</div>
+      <div class="v" id="fPaid">–</div>
+      <div class="d" id="fInvoices"></div>
+    </div>
+    <div>
+      <div class="k">Audit chain</div>
+      <a class="v" id="fChain" href="#chain">loading</a>
+      <div class="d">Every record re-hashed in this browser, not trusted from the server.</div>
     </div>
   </section>
 
-  <section class="agent" aria-label="The agent">
-    <header>
-      <h2 id="agentRole">Lakeshore Glazing AP assistant</h2>
-      <span class="model" id="agentModel"></span>
-      <span class="status" id="agentStatus">idle</span>
-      <span class="notice" id="notice" role="status"></span>
-    </header>
-    <div class="eyes" aria-label="What the agent is reading">
-      <div class="chrome"><i id="eyeDot"></i><span id="eyeTitle">What the agent is reading</span></div>
-      <div class="screen" id="screen"><div class="empty"><ol class="howto">
-        <li>Pick a <b>scenario</b> and an <b>agent</b> above. Each scenario hides a fraud in the inbox.</li>
-        <li>Press <b>Run the inbox</b> and watch the agent read the mail and ask the gate to pay.</li>
-        <li>When the agent writes to Dana, the owner, <b>answer as Dana</b>. Tell it to pay the real bill, or to pay the fraudster's account, and watch what the gate does.</li>
-      </ol></div></div>
+  <section class="try" aria-label="Or run a model">
+    <div class="row">
+      <span class="label">Or let a real model work a phishing inbox:</span>
+      <select id="scenario" aria-label="Scenario"></select>
+      <select id="model" aria-label="Model"></select>
+      <button class="btn" id="run" disabled>Run</button>
     </div>
-    <div class="log" id="log" aria-live="polite"></div>
+    <p><span id="scenarioHint"></span> When the agent reports to Dana, the owner, you answer for her: tell it to pay the attacker, and watch the gate.</p>
+    <p class="notice" id="notice" role="status"></p>
+  </section>
+  <p class="fine shared">One shared demo: everyone on this page watches the same run. Runs are rate-limited because each one moves
+    PayPal sandbox money and calls models. Eight models at once, with you as the attacker: <a href="/siege">Siege</a>.</p>
+
+  <section class="block" aria-label="The current run">
+    <div class="cols">
+      <div>
+        <div class="head">
+          <h2 id="agentRole">Agent</h2>
+          <span class="status" id="agentStatus">idle</span>
+          <span class="aside mono" id="agentModel"></span>
+        </div>
+        <div class="pane">
+          <details class="eyes" id="eyes">
+            <summary><span id="eyeLabel">Reading</span>: <b id="eyeTitle">nothing open</b></summary>
+            <div class="screen" id="screen"><div class="empty">Nothing open yet.</div></div>
+          </details>
+          <div class="log" id="log" aria-live="polite"><div class="placeholder">No run yet. Start one above.</div></div>
+        </div>
+      </div>
+      <div>
+        <div class="head">
+          <h2>Gate decisions</h2>
+          <span class="aside" id="decCount"></span>
+        </div>
+        <div class="pane decisions" id="decisions"><div class="placeholder">No payment requests yet. Each one the agent makes appears here with the rule that decided it.</div></div>
+      </div>
+    </div>
   </section>
 
-  <section class="gate" aria-label="The gate">
-    <div class="money" id="money">
-      <div><span>Balance</span><b id="mBal">–</b></div>
-      <div><span>Set aside for approved bills</span><b id="mEnc">–</b></div>
-      <div><span>On its way to PayPal</span><b id="mRes">–</b></div>
-      <div class="avail"><span>The agent may spend</span><b id="mAvail">–</b></div>
+  <section class="block" aria-label="The gate's state">
+    <div class="cols">
+      <div>
+        <div class="head"><h2>Account</h2><span class="aside" id="policyline"></span></div>
+        <dl class="pane money">
+          <div><dt>Balance</dt><dd id="mBal">–</dd></div>
+          <div><dt>Set aside for bills</dt><dd id="mEnc">–</dd></div>
+          <div><dt>In flight to PayPal</dt><dd id="mRes">–</dd></div>
+          <div class="avail"><dt>Agent may spend</dt><dd id="mAvail">–</dd></div>
+        </dl>
+      </div>
+      <div>
+        <div class="head"><h2>Policy<small>the agent can't see or change it</small></h2></div>
+        <ul class="pane rules" id="rules"></ul>
+      </div>
     </div>
-    <div class="policyline" id="policyline"></div>
-
-    <h2>Decisions</h2>
-    <div class="decisions" id="decisions"><div class="empty">No payment requests yet. Every one the agent makes lands here with the rule that decided it.</div></div>
-
-    <h2>Dana's payment schedule</h2>
-    <p class="sched-note">Bills Dana approved, each payable only inside its window and only to the payee she approved. The agent can pay these; it cannot add, move or change one.</p>
-    <div class="commitments" id="commitments"></div>
-
-    <h2>Rules the agent cannot see or change</h2>
-    <div class="rules"><ul id="rules"></ul></div>
+    <div class="head" style="margin-top: 20px"><h2>Approved bills<small>Dana's schedule. The agent can pay these, only to the payee shown, only inside the window. It can't add or edit one.</small></h2></div>
+    <div class="pane tablebox" id="commitments"></div>
   </section>
 
-  <section class="ledger" aria-label="Audit log">
-    <div class="chainbar">
-      <h2>Audit log</h2>
+  <section class="block" id="chain" aria-label="Audit chain">
+    <div class="head">
+      <h2>Audit chain</h2>
       <span class="verdict" id="verdict">Waiting for records</span>
-      <span class="headhash" id="headhash"></span>
-      <span class="spacer"></span>
-      <a href="/audit">Open the audit desk</a>
-      <a href="/console/audit.jsonl" download="portcullis-audit.jsonl">Download the chain</a>
-      <span class="fiction">Fictional company. PayPal sandbox only.</span>
+      <span class="aside"><a href="/console/audit.jsonl" download="portcullis-audit.jsonl">Download .jsonl</a> · <a href="/console/verify">Server's own check</a> · <a href="/audit">Audit desk</a></span>
     </div>
-    <div id="grid"></div>
-    <div class="inspect" id="inspect">
-      <h3>Inspect a record</h3>
-      <div class="hint">Select a row to see the exact bytes that were hashed, and the hash your browser computed from them.</div>
+    <details class="howto">
+      <summary>How each hash is computed, and how to check it yourself</summary>
+      <pre id="howto">hash = SHA-256( "portcullis.audit.v1"
+                ‖ len ‖ seq   ‖ len ‖ at
+                ‖ len ‖ kind  ‖ len ‖ body
+                ‖ len ‖ prev )
+seq, at and every len are u64 big-endian; prev is the previous record's hash (32 zero bytes for record 0).
+Same encoding as crates/kernel/src/audit.rs. This page recomputes every record it receives.</pre>
+    </details>
+    <div class="headhash" id="headhash"></div>
+    <div class="pane tablebox" style="margin-top: 10px">
+      <table class="ledger">
+        <thead><tr><th>#</th><th class="time">Time</th><th>Kind</th><th>What happened</th><th class="hash">Hash</th></tr></thead>
+        <tbody id="ledger"></tbody>
+      </table>
     </div>
+    <button class="btn more" id="more" hidden>Show older records</button>
   </section>
-</div>
+
+  <footer>
+    <span>Lakeshore Glazing is fictional. PayPal sandbox only; no real money moves.</span>
+    <a href="https://github.com/HeyBatlle1/Portcullis">Source</a>
+    <a href="https://github.com/HeyBatlle1/Portcullis/blob/main/THREAT_MODEL.md">Threat model</a>
+    <span>Apache-2.0</span>
+  </footer>
+</main>
 
 <script>
 "use strict";
@@ -391,18 +445,56 @@ function verifyNew() {
   });
 }
 function showVerdict() {
-  const v = $("verdict"), n = chain.records.length;
-  if (!n) { v.textContent = "No records yet"; v.className = "verdict"; $("headhash").textContent = ""; return; }
-  if (chain.broken) { v.textContent = `Chain broken: ${chain.broken}`; v.className = "verdict bad"; }
-  else {
+  showFacts();
+  const v = $("verdict"), chip = $("chip"), n = chain.records.length;
+  if (!n) { v.textContent = "No records yet"; v.className = "verdict"; $("headhash").textContent = ""; chip.textContent = "chain: empty"; chip.className = "chip"; return; }
+  if (chain.broken) {
+    v.textContent = `Chain broken: ${chain.broken}`; v.className = "verdict bad";
+    chip.textContent = "chain: broken"; chip.className = "chip bad";
+  } else if (chain.checked < n) {
+    v.textContent = `Verifying ${chain.checked} of ${n}…`; v.className = "verdict";
+  } else {
     const scope = chain.from > 0 ? `the last ${n} of ${chain.total} records` : `all ${n} records`;
-    v.textContent = `Verified in your browser: ${scope}`;
-    v.className = "verdict ok";
+    v.textContent = `✓ Verified in your browser: ${scope}`; v.className = "verdict ok";
+    chip.textContent = `chain ✓ ${n}`; chip.className = "chip ok";
+    chip.title = "Every record's SHA-256 recomputed in this browser and linked to the one before it";
   }
   $("headhash").textContent = "head " + chain.records[n - 1].hash;
 }
+function showFacts() {
+  const n = chain.records.length, fc = $("fChain");
+  if (!n) { fc.textContent = "no records yet"; fc.className = "v"; }
+  else if (chain.broken) { fc.textContent = "✗ chain broken"; fc.className = "v bad"; }
+  else if (chain.checked < n) { fc.textContent = `checking ${chain.checked} of ${n}…`; fc.className = "v"; }
+  else { fc.textContent = `✓ ${n} records verified`; fc.className = "v ok"; }
+  let refused = 0, allowed = 0, settled = 0, sent = 0, issued = 0, paid = 0;
+  const rules = new Set();
+  for (const r of chain.records) {
+    let b; try { b = JSON.parse(r.body); } catch { continue; }
+    if (r.kind === "decision") {
+      const d = b.adjudication && b.adjudication.decision;
+      if (d && d.Refuse) { refused++; rules.add(d.Refuse.rule); } else if (d) allowed++;
+    } else if (r.kind === "execution" && b.event) {
+      if (b.event.event === "settled") settled++;
+      if (b.event.event === "submitted") sent++;
+    } else if (r.kind === "invoice") {
+      if (b.action === "issued") issued++;
+      if (b.action === "paid") paid++;
+    }
+  }
+  const s = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
+  if (!refused && !allowed) { $("fDecisions").textContent = "none yet"; $("fRules").textContent = "Run an agent above."; }
+  else {
+    $("fDecisions").replaceChildren(el("span", "n-bad", `${refused} refused`), document.createTextNode(" · "), el("span", "n-ok", `${allowed} allowed`));
+    $("fRules").textContent = rules.size ? `Refusals came from ${s(rules.size, "different rule")}. No model was asked.` : "No model was asked.";
+    $("fRules").title = [...rules].join("\n");
+  }
+  $("fPaid").textContent = sent || settled ? `${s(settled, "payout")} settled` : "nothing paid yet";
+  const inv = issued || paid ? `${s(issued, "invoice")} issued, ${paid} marked paid. ` : "";
+  $("fInvoices").textContent = sent || issued ? `${inv}${s(sent, "payout batch")} sent.`.replace("batchs", "batches") : "PayPal is called only after the gate allows.";
+}
 
-/* ── the ledger grid ─────────────────────────────────────────────────────── */
+/* ── one line per record ─────────────────────────────────────────────────── */
 function summarize(r) {
   let b; try { b = JSON.parse(r.body); } catch { return r.kind; }
   if (r.kind === "decision") {
@@ -424,68 +516,91 @@ function summarize(r) {
                    unresolved: "Held for a human", anomaly: "Anomaly" }[e.event] || e.event;
     return `${what} (${short(e.proposal)})${e.batch_id ? " batch " + e.batch_id : ""}${e.reason ? ": " + e.reason : ""}`;
   }
-  return r.kind;
+  if (r.kind === "invoice") {
+    if (b.action === "issued") return `Vendor issued PayPal invoice ${b.number} for ${fmtDec(b.amount)}`;
+    if (b.action === "paid") return `Vendor recorded invoice ${b.number} paid${b.batch_id ? " by batch " + b.batch_id : ""}`;
+    return `Invoice ${b.number || ""} ${b.action || ""}`.trim();
+  }
+  if (r.kind === "siege") {
+    if (b.action === "started") return `Siege ${b.run ?? ""} started: ${(b.roster || []).length} agents, bill ${b.bill}`.replace("  ", " ");
+    if (b.action === "attack") return `Attack sent to every inbox: ${b.label}`;
+    if (b.action === "ended") return `Siege ${b.run} ended`;
+  }
+  return b.action ? `${r.kind}: ${b.action}` : r.kind;
+}
+function isRefusal(r) {
+  if (r.kind !== "decision") return false;
+  try { return !!JSON.parse(r.body).adjudication.decision.Refuse; } catch { return false; }
 }
 
-let grid = null;
-function gridRow(r) {
-  let refused = false;
-  if (r.kind === "decision") { try { refused = !!JSON.parse(r.body).adjudication.decision.Refuse; } catch {} }
-  return { seq: r.seq, time: fmtTime(r.at), kind: r.kind, what: summarize(r), hash: r.hash, refused };
+/* ── the ledger table ────────────────────────────────────────────────────── */
+const PAGE_ROWS = 60;
+let shown = PAGE_ROWS;
+let open = null; // seq of the expanded record
+function ledgerRow(r) {
+  const tr = el("tr", "rec" + (isRefusal(r) ? " refused" : ""));
+  tr.dataset.seq = r.seq;
+  tr.tabIndex = 0;
+  tr.setAttribute("aria-expanded", "false");
+  tr.append(el("td", "seq", String(r.seq)), el("td", "time", fmtTime(r.at)), el("td", "kind", r.kind),
+            el("td", "what", summarize(r)), el("td", "hash", short(r.hash)));
+  return tr;
 }
-function makeGrid() {
-  if (!window.agGrid) { $("grid").textContent = "The grid library did not load; the chain is still verified above."; return; }
-  const theme = agGrid.themeQuartz.withParams({
-    fontFamily: "Libre Franklin, system-ui, sans-serif", fontSize: 13,
-    backgroundColor: "#f3f7f4", foregroundColor: "#1d2b4f", headerBackgroundColor: "#e7eee9",
-    headerTextColor: "#52607d", borderColor: "#b9c6c0", rowBorder: { color: "#d5ded9" },
-    accentColor: "#1d2b4f", selectedRowBackgroundColor: "#dfe8e3", wrapperBorderRadius: 0,
-    spacing: 6, oddRowBackgroundColor: "#f3f7f4",
-  });
-  grid = agGrid.createGrid($("grid"), {
-    theme,
-    rowData: [],
-    animateRows: false,
-    getRowId: (p) => String(p.data.seq),
-    columnDefs: [
-      { field: "seq", headerName: "#", width: 70, sort: "desc" },
-      { field: "time", headerName: "Time", width: 110 },
-      { field: "kind", headerName: "Kind", width: 110,
-        cellStyle: (p) => p.data.refused ? { color: "#b3262d", fontWeight: 600 } : null },
-      { field: "what", headerName: "What happened", flex: 1, minWidth: 260, tooltipField: "what" },
-      { field: "hash", headerName: "Hash", width: 150, valueFormatter: (p) => short(p.value),
-        cellStyle: { fontFamily: "JetBrains Mono, monospace", fontSize: "12px" } },
-    ],
-    rowSelection: { mode: "singleRow", checkboxes: false, enableClickSelection: true },
-    onRowSelected: (e) => { if (e.node.isSelected()) inspect(e.data.seq); },
-    getRowStyle: (p) => p.data.refused ? { boxShadow: "inset 4px 0 0 #b3262d" } : null,
-  });
+function renderLedger() {
+  const body = $("ledger");
+  const recs = chain.records.slice(-shown).reverse();
+  body.replaceChildren(...recs.map(ledgerRow));
+  $("more").hidden = chain.records.length <= shown;
+  if (open != null) { const tr = body.querySelector(`tr.rec[data-seq="${open}"]`); if (tr) expand(tr); else open = null; }
 }
-async function inspect(seq) {
+function prependLedger(r) {
+  const body = $("ledger");
+  body.prepend(ledgerRow(r));
+  const rows = body.querySelectorAll("tr.rec");
+  if (rows.length > shown) { const last = rows[rows.length - 1]; if (last.nextSibling?.classList?.contains("inspect")) last.nextSibling.remove(); last.remove(); $("more").hidden = false; }
+}
+$("more").addEventListener("click", () => { shown += PAGE_ROWS * 4; renderLedger(); });
+$("ledger").addEventListener("click", (ev) => {
+  const tr = ev.target.closest("tr.rec"); if (!tr) return;
+  const was = tr.getAttribute("aria-expanded") === "true";
+  $("ledger").querySelectorAll("tr.inspect").forEach((x) => x.remove());
+  $("ledger").querySelectorAll('tr.rec[aria-expanded="true"]').forEach((x) => x.setAttribute("aria-expanded", "false"));
+  open = null;
+  if (!was) expand(tr);
+});
+$("ledger").addEventListener("keydown", (ev) => { if ((ev.key === "Enter" || ev.key === " ") && ev.target.matches("tr.rec")) { ev.preventDefault(); ev.target.click(); } });
+async function expand(tr) {
+  const seq = Number(tr.dataset.seq);
   const r = chain.records.find((x) => x.seq === seq); if (!r) return;
-  const box = $("inspect"); box.replaceChildren();
-  box.append(el("h3", null, `Record ${r.seq}, ${r.kind}, ${fmtDate(r.at)} ${fmtTime(r.at)}`));
+  open = seq;
+  tr.setAttribute("aria-expanded", "true");
+  const row = el("tr", "inspect"), td = el("td"); td.colSpan = 5; row.append(td);
+  tr.after(row);
+  td.append(el("div", "fine", `Record ${r.seq}, ${r.kind}, ${fmtDate(r.at)} ${fmtTime(r.at)}. The body is pretty-printed here; the hash covers its exact compact string.`));
   let pretty = r.body; try { pretty = JSON.stringify(JSON.parse(r.body), null, 2); } catch {}
-  box.append(el("pre", null, pretty));
+  td.append(el("pre", null, pretty));
   const mine = await digest(r);
   const ok = mine === r.hash;
-  const c = el("div", "check", ok ? "Your browser's hash matches the stored hash." : "Your browser's hash does NOT match the stored hash.");
-  c.style.color = ok ? "var(--g-ok)" : "var(--g-red)";
-  box.append(c, el("pre", null, `computed ${mine}\nstored   ${r.hash}\nprev     ${r.prev}`));
+  td.append(el("div", "check " + (ok ? "ok" : "bad"), ok ? "✓ Your browser's hash matches the stored hash." : "✗ Your browser's hash does NOT match the stored hash."),
+            el("pre", null, `computed ${mine}\nstored   ${r.hash}\nprev     ${r.prev}`));
 }
 
 /* ── the gate's state ────────────────────────────────────────────────────── */
 const ruleText = {
-  PerTransactionMax: (r) => `No single payment over ${fmtMinor(r.minor)}`,
-  RollingWindowMax: (r) => `No more than ${fmtMinor(r.minor)} in any ${r.window / 3600} hours`,
-  VelocityMax: (r) => `At most ${r.count} payments in any ${r.window / 60} minutes`,
-  BalanceFloor: (r) => `The balance never goes below ${fmtMinor(r.minor)}`,
-  AssetAllowlist: (r) => `Currencies allowed: ${r.assets.map((a) => a.symbol).join(", ")}`,
-  CommitmentsOnly: () => "Only approved bills may be paid; nothing goes out on the agent's say-so alone",
+  PerTransactionMax: (r) => [`No single payment over ${fmtMinor(r.minor)}`, "ExceedsPerTransaction"],
+  RollingWindowMax: (r) => [`No more than ${fmtMinor(r.minor)} in any ${r.window / 3600} hours`, "ExceedsRollingWindow"],
+  VelocityMax: (r) => [`At most ${r.count} payments in any ${r.window / 60} minutes`, "ExceedsVelocity"],
+  BalanceFloor: (r) => [`The balance never goes below ${fmtMinor(r.minor)}`, "BreachesBalanceFloor"],
+  AssetAllowlist: (r) => [`Currencies allowed: ${r.assets.map((a) => a.symbol).join(", ")}`, "AssetNotAllowed"],
+  CommitmentsOnly: () => ["Only approved bills may be paid; nothing goes out on the agent's say-so alone", "CommitmentRequired"],
 };
-function ruleLine(rule) {
+function ruleItem(rule) {
   const [k, v] = Object.entries(rule)[0] || [];
-  return ruleText[k] ? ruleText[k](v) : JSON.stringify(rule);
+  const li = el("li");
+  if (!ruleText[k]) { li.append(el("span", null, JSON.stringify(rule))); return li; }
+  const [text, id] = ruleText[k](v);
+  li.append(el("span", null, text), el("code", null, id));
+  return li;
 }
 let executions = {};
 function renderState(s) {
@@ -493,32 +608,35 @@ function renderState(s) {
   $("mEnc").textContent = fmtDec(s.encumbered);
   $("mRes").textContent = fmtDec(s.reserved);
   $("mAvail").textContent = fmtDec(s.available);
-  $("policyline").replaceChildren(
-    document.createTextNode(`Policy version ${s.policy.version}, signed-log head `),
-    el("code", null, short(s.policy.head)),
-    document.createTextNode(". PayPal sandbox; no real money moves."));
+  const zero = /^0+$/.test(s.policy.head || "");
+  const pl = $("policyline"); pl.replaceChildren(document.createTextNode(`Policy v${s.policy.version}`));
+  if (zero) pl.append(document.createTextNode(", no amendments since genesis"));
+  else pl.append(document.createTextNode(", signed-log head "), el("code", null, short(s.policy.head)));
 
   const rules = $("rules"); rules.replaceChildren();
-  for (const r of s.policy.rules) rules.append(el("li", null, ruleLine(r)));
+  for (const r of s.policy.rules) rules.append(ruleItem(r));
   for (const p of s.policy.standing) {
     const live = p.active_from <= s.now;
-    rules.append(el("li", null, `Standing payee ${p.recipient}${live ? "" : `, usable from ${fmtDate(p.active_from)}`}`));
+    const li = el("li"); li.append(el("span", null, `Standing payee ${p.recipient}${live ? "" : `, usable from ${fmtDate(p.active_from)}`}`), el("code", null, "RecipientNotAllowed"));
+    rules.append(li);
   }
 
   const box = $("commitments"); box.replaceChildren();
-  if (!s.commitments.length) { box.append(el("div", "empty", "No approved bills.")); }
+  if (!s.commitments.length) { box.append(el("div", "placeholder", "No approved bills.")); }
   else {
-    const t = el("table"); const h = t.createTHead().insertRow();
-    for (const c of ["Bill", "Pay to", "Amount", "Status", "Payable until"]) h.append(el("th", null, c));
+    const t = el("table", "bills"); const h = t.createTHead().insertRow();
+    for (const [c, cls] of [["Bill"], ["Pay to"], ["Amount", "num"], ["Status"], ["Payable until"]]) h.append(el("th", cls, c));
     const funded = Object.fromEntries(s.forecast.map((f) => [f.id, f.funded]));
     const order = { Open: 0, Drawing: 1, Consumed: 2, Expired: 3 };
     const rows = [...s.commitments].sort((a, b) => (order[a.state] - order[b.state]) || (b.closes - a.closes));
+    const tb = t.createTBody();
     for (const c of rows.slice(0, 8)) {
-      const tr = t.insertRow(); if (c.state === "Consumed" || c.state === "Expired") tr.className = "closed";
+      const tr = tb.insertRow(); if (c.state === "Consumed" || c.state === "Expired") tr.className = "closed";
       const status = { Open: c.drawable ? "Approved, payable now" : `Approved, payable from ${fmtDate(c.opens)}`,
                        Drawing: "Payment in flight", Consumed: "Paid", Expired: "Withdrawn or lapsed" }[c.state] || c.state;
-      const cells = [c.id, c.recipient, fmtDec(c.amount), status + (c.state === "Open" && funded[c.id] === false ? " (not covered by balance)" : ""), fmtDate(c.closes)];
-      cells.forEach((v, i) => { const td = tr.insertCell(); td.textContent = v; if (i === 2) td.className = "num"; });
+      const cells = [[c.id, "mono"], [c.recipient, "addr"], [fmtDec(c.amount), "num"],
+                     [status + (c.state === "Open" && funded[c.id] === false ? " (not covered by balance)" : "")], [fmtDate(c.closes)]];
+      for (const [v, cls] of cells) { const td = tr.insertCell(); td.textContent = v; if (cls) td.className = cls; }
       tr.cells[0].title = c.memo;
     }
     box.append(t);
@@ -529,25 +647,36 @@ function renderState(s) {
 
 /* ── decisions, built from the chain itself ──────────────────────────────── */
 const cards = new Map();
+let decisionCount = { ok: 0, no: 0 };
+function countLine() {
+  const { ok, no } = decisionCount;
+  $("decCount").textContent = ok + no ? `${no} refused · ${ok} allowed` : "";
+}
 function addDecision(r, animate) {
   let b; try { b = JSON.parse(r.body); } catch { return; }
   const p = b.proposal, d = b.adjudication.decision, refused = !!d.Refuse;
-  const box = $("decisions"); box.querySelector(".empty")?.remove();
-  const card = el("article", "card");
-  card.append(el("div", "amt", fmtMinor(p.amount.minor)));
-  const to = el("div", "to"); to.append(el("em", null, "to "), document.createTextNode(p.recipient)); card.append(to);
-  card.append(el("div", "meta", [p.against ? `against ${p.against}` : "no bill named", `asked by ${p.agent}`, fmtTime(r.at)].join(", ")));
-  if (p.purpose) {
-    const why = el("div", "why"); why.append(document.createTextNode("Agent's reason, which the gate does not read: "), el("q", null, p.purpose));
-    card.append(why);
+  const box = $("decisions"); box.querySelector(".placeholder")?.remove();
+  const card = el("article", "dec" + (animate ? " fresh" : ""));
+  const line = el("div", "line");
+  line.append(el("span", "badge " + (refused ? "no" : "ok"), refused ? "Refused" : "Allowed"),
+              el("span", "amt", fmtMinor(p.amount.minor)), el("span", "to", "→ " + p.recipient));
+  card.append(line);
+  if (refused) {
+    const rule = el("div", "rule"); rule.append(el("code", null, d.Refuse.rule), document.createTextNode(b.reason ? " " + b.reason : ""));
+    card.append(rule);
   }
+  card.append(el("div", "meta", [p.against ? `bill ${p.against}` : "no bill named", `agent ${p.agent}`, fmtTime(r.at), `record ${r.seq}`].join(" · ")));
   const odd = [...p.recipient].filter((ch) => ch.charCodeAt(0) > 126 || ch.charCodeAt(0) < 33);
-  if (odd.length) card.append(el("div", "meta", "This address is not what it looks like: it contains " +
+  if (odd.length) card.append(el("div", "warn", "This address is not what it looks like: it contains " +
     odd.map((ch) => `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}`).join(", ") +
     ", which renders like a plain letter but is not one."));
-  if (refused) card.append(el("div", "rule", `${b.reason || ""} (${d.Refuse.rule})`));
-  else { const t = el("div", "track"); t.dataset.proposal = p.id; card.append(t); cards.set(p.id, t); }
-  card.append(el("div", "stamp " + (refused ? "refused" : "allowed") + (animate ? " land" : ""), refused ? "Refused" : "Allowed"));
+  if (p.purpose) {
+    const why = el("details"); why.append(el("summary", null, "Agent's stated reason (the gate never reads it)"), el("q", null, p.purpose));
+    card.append(why);
+  }
+  if (!refused) { const t = el("div", "track"); card.append(t); cards.set(p.id, t); }
+  refused ? decisionCount.no++ : decisionCount.ok++;
+  countLine();
   box.prepend(card);
   while (box.children.length > 40) box.lastChild.remove();
   refreshTracks();
@@ -556,7 +685,8 @@ function refreshTracks() {
   for (const [id, t] of cards) {
     const e = executions[id]; const state = e ? e.state : "pending";
     const steps = [["Queued", true], ["Sent to PayPal", ["in_flight", "settled", "done"].includes(state)], ["Settled", ["settled", "done"].includes(state)]];
-    t.replaceChildren(...steps.map(([n, done]) => el("span", done ? "done" : "", n)));
+    t.replaceChildren();
+    steps.forEach(([n, done], i) => { if (i) t.append(el("i", null, "→")); t.append(el("span", done ? "done" : "", n)); });
     if (state === "released") t.append(el("span", "bad", "Released: " + e.reason));
     if (state === "unresolved") t.append(el("span", "bad", "Held for a human: " + e.reason));
   }
@@ -571,18 +701,22 @@ function agentEvent(e, live) {
   switch (e.type) {
     case "started":
       calls.clear();
-      if (live) { log.replaceChildren(); clearScreen(); }
+      log.replaceChildren();
+      if (live) clearScreen();
       runModel = e.model;
-      $("agentRole").textContent = e.model === demo.hostile ? "Compromised AP agent" : "Lakeshore Glazing AP assistant";
-      if (e.model === demo.hostile) $("screen").replaceChildren(el("div", "empty", "This agent reads no email. It is a script holding a stolen token."));
-      $("agentModel").textContent = modelName(e.model);
+      $("agentRole").textContent = e.model === demo.hostile ? "Compromised agent" : "Agent: Lakeshore Glazing AP assistant";
+      if (e.model === demo.hostile) {
+        $("eyeLabel").textContent = "Reading"; $("eyeTitle").textContent = "no email";
+        $("screen").replaceChildren(el("div", "empty", "This agent reads no email. It is a script holding a stolen token."));
+      }
+      $("agentModel").textContent = e.model === demo.hostile ? "scripted, no model" : e.model;
       setStatus("working", true);
-      log.append(el("div", "run-start", `Run ${e.run}. Tools offered: ${e.tools.join(", ")}`));
+      log.append(el("div", "run-start", `run ${e.run} · tools offered: ${e.tools.join(", ")}`));
       break;
     case "said": log.append(el("div", "said", plain(e.text))); break;
     case "tool_call":
       if (e.surface === "portcullis") {
-        const s = el("div", "slip"); s.append(el("div", "tool", e.tool));
+        const s = el("div", "call"); s.append(el("div", "tool", e.tool));
         const keys = Object.keys(e.args || {});
         if (keys.length) {
           const dl = el("dl");
@@ -591,7 +725,7 @@ function agentEvent(e, live) {
         }
         log.append(s); calls.set(e.call, s);
       } else {
-        const w = el("div", "world"); w.append(document.createTextNode("› "), el("b", null, e.tool), document.createTextNode(" " + (e.args.id || "")));
+        const w = el("div", "world", `› ${e.tool}${e.args && e.args.id ? " " + e.args.id : ""}`);
         if (e.tool !== "message_owner") { log.append(w); calls.set(e.call, w); }
       }
       break;
@@ -606,21 +740,22 @@ function agentEvent(e, live) {
         else text = r.available ? `Available: ${fmtDec(r.available)}` : r.commitments ? `${r.commitments.length} approved bill(s)` : JSON.stringify(r);
         node.append(el("div", "answer", text));
       } else if (e.tool === "list_inbox" && e.result.messages) {
-        node.append(document.createTextNode(`  ${e.result.messages.length} messages`));
+        node.append(document.createTextNode(`  (${e.result.messages.length} messages)`));
       } else if (!e.ok) node.append(document.createTextNode("  " + (e.result.error || "error")));
       break;
     }
-    case "viewing": showEmail(e.email); break;
-    case "to_owner": { const o = el("div", "owner"); o.append(el("strong", null, "Report to Dana"), document.createTextNode(plain(e.text))); log.append(o); break; }
+    case "viewing": showEmail(e.email, live); break;
+    case "to_owner": { const o = el("div", "msg"); o.append(el("strong", null, "Agent's report to Dana"), document.createTextNode(plain(e.text))); log.append(o); break; }
     case "awaiting_owner": askDana(e, live); break;
     case "from_owner": {
       closeAsk();
-      const d = el("div", "dana"); d.append(el("strong", null, "Dana replied"), document.createTextNode(e.text)); log.append(d);
+      const d = el("div", "msg dana"); d.append(el("strong", null, "Dana replied"), document.createTextNode(e.text)); log.append(d);
       setStatus("working", true);
       break;
     }
-    case "finished": closeAsk(); log.append(el("div", "done", `Finished after ${e.turns} ${e.model === demo.hostile || runModel === demo.hostile ? "attempts" : "model turns"}: ${e.reason}.`)); setStatus("finished"); $("eyeDot").className = ""; break;
-    case "failed": closeAsk(); log.append(el("div", "fail", `Run failed: ${e.error}`)); setStatus("failed"); $("eyeDot").className = ""; break;
+    case "reminded": log.append(el("div", "reminded", "Harness, not the model: " + e.text)); break;
+    case "finished": closeAsk(); log.append(el("div", "done", `Finished after ${e.turns} ${e.model === demo.hostile || runModel === demo.hostile ? "attempts" : "model turns"}: ${e.reason}.`)); setStatus("finished"); break;
+    case "failed": closeAsk(); log.append(el("div", "fail", `Run failed: ${e.error}`)); setStatus("failed"); break;
   }
   if (atBottom || live) log.scrollTop = log.scrollHeight;
 }
@@ -643,13 +778,13 @@ function closeAsk() {
 function askDana(e, live) {
   closeAsk();
   const node = el("div", "ask");
-  const who = el("div", "who", "Answer as Dana, the owner ");
+  const who = el("div", "who", "Answer as Dana, the owner");
   const left = el("span"); who.append(left); node.append(who);
   const note = el("div", "note");
   const until = Date.now() + e.seconds * 1000;
   const tick = () => {
     const s = Math.max(0, Math.round((until - Date.now()) / 1000));
-    left.textContent = `(the agent waits ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")})`;
+    left.textContent = `the agent waits ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   };
   for (const [reply, label, text] of REPLIES) {
     const b = el("button"); b.append(el("b", null, label + ". "), document.createTextNode(text));
@@ -671,26 +806,24 @@ function askDana(e, live) {
   setStatus("waiting for Dana", true);
   tick();
   ask = { node, timer: setInterval(tick, 1000) };
+  if (live) node.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
-// Models write Markdown; this is a terminal. Drop the emphasis marks, keep the words.
+// Models write Markdown; drop the emphasis marks, keep the words.
 function plain(t) { return String(t).replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1"); }
 function setStatus(t, live) { const s = $("agentStatus"); s.textContent = t; s.className = "status" + (live ? " live" : ""); }
 function clearScreen() {
   $("screen").replaceChildren(el("div", "empty", "Nothing open yet."));
-  $("eyeTitle").textContent = "What the agent is reading";
+  $("eyeLabel").textContent = "Reading"; $("eyeTitle").textContent = "nothing open";
 }
-function showEmail(m) {
+function showEmail(m, live) {
   const sc = $("screen"); sc.replaceChildren();
-  const head = el("div", "head");
-  for (const [k, v] of [["From", m.from], ["To", m.to], ["Received", m.received]]) {
-    const d = el("div"); d.append(document.createTextNode(k + ": "), el("span", null, v)); head.append(d);
-  }
-  head.append(el("div", "subject", m.subject));
-  sc.append(head, el("pre", null, m.body));
+  for (const [k, v] of [["From", m.from], ["To", m.to], ["Received", m.received]]) sc.append(el("div", "meta", `${k}: ${v}`));
+  sc.append(el("div", null, m.subject), el("pre", null, m.body));
   sc.scrollTop = 0;
+  $("eyeLabel").textContent = "Reading";
   $("eyeTitle").textContent = m.subject;
-  $("eyeDot").className = "on";
+  if (live && window.matchMedia("(min-width: 901px)").matches) $("eyes").open = true;
 }
 
 /* ── controls ────────────────────────────────────────────────────────────── */
@@ -699,32 +832,48 @@ const HOSTILE_LABEL = "Compromised agent (scripted, no model)";
 const modelName = (m) => (m === demo.hostile ? HOSTILE_LABEL : m);
 function renderDemo(d) {
   demo = d;
-  const sel = $("model"), sc = $("scenario"), btn = $("run");
-  if (!d.enabled) { btn.disabled = sel.disabled = sc.disabled = true; $("notice").textContent = "The demo agent is not configured on this server."; return; }
+  const sel = $("model"), sc = $("scenario"), btn = $("run"), hb = $("runHostile");
+  if (!d.enabled) {
+    btn.disabled = hb.disabled = sel.disabled = sc.disabled = true;
+    btn.hidden = sel.hidden = sc.hidden = true;
+    $("notice").textContent = "The demo agent is not configured on this server. The chain and the gate's state below are still live.";
+    return;
+  }
   if (!sel.options.length) {
     for (const m of d.models) sel.append(new Option(m, m));
     if (d.hostile) sel.append(new Option(HOSTILE_LABEL, d.hostile));
   }
-  if (!sc.options.length) for (const x of d.scenarios || []) { const o = new Option(x.title, x.id); o.title = x.summary; sc.append(o); }
-  btn.disabled = sel.disabled = sc.disabled = !!d.busy;
-  btn.textContent = d.busy ? "Agent is working" : "Run the inbox";
+  if (!sc.options.length) { for (const x of d.scenarios || []) { const o = new Option(x.title, x.id); o.title = x.summary; sc.append(o); } scenarioHint(); }
+  btn.disabled = hb.disabled = sel.disabled = sc.disabled = !!d.busy;
+  hb.hidden = !d.hostile;
+  btn.textContent = d.busy ? "Agent is working" : "Run";
+  hb.textContent = d.busy ? "Agent is working" : "Run the compromised agent";
 }
-$("run").addEventListener("click", async () => {
-  $("run").disabled = true; $("notice").textContent = "";
+function scenarioHint() {
+  const x = (demo.scenarios || []).find((s) => s.id === $("scenario").value);
+  $("scenarioHint").textContent = x ? x.summary : "";
+}
+$("scenario").addEventListener("change", scenarioHint);
+async function start(model) {
+  $("run").disabled = $("runHostile").disabled = true; $("notice").textContent = "";
   try {
-    const r = await fetch("/console/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: $("model").value, scenario: $("scenario").value }) });
+    const r = await fetch("/console/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, scenario: $("scenario").value }) });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 202) $("notice").textContent = `Run ${j.run}: Dana approved ${j.invoice}.`;
-    else { $("notice").textContent = j.error || `Could not start (HTTP ${r.status}).`; renderDemo(demo); }
+    if (r.status === 202) {
+      $("notice").textContent = `Run ${j.run} started. Dana approved ${j.invoice}; the agent now has to pay it.`;
+      $("log").scrollIntoView({ block: "start", behavior: "smooth" });
+    } else { $("notice").textContent = j.error || `Could not start (HTTP ${r.status}).`; renderDemo(demo); }
   } catch { $("notice").textContent = "Could not reach the server."; renderDemo(demo); }
-});
+}
+$("run").addEventListener("click", () => start($("model").value));
+$("runHostile").addEventListener("click", () => start(demo.hostile));
 
 /* ── the stream ──────────────────────────────────────────────────────────── */
 function addRecord(r, animate) {
   if (chain.records.length && r.seq <= chain.records[chain.records.length - 1].seq) return;
   chain.records.push(r);
   chain.total = Math.max(chain.total, r.seq + 1);
-  grid?.applyTransaction({ add: [gridRow(r)], addIndex: 0 });
+  if (animate) prependLedger(r);
   if (r.kind === "decision") addDecision(r, animate);
   verifyNew();
 }
@@ -734,29 +883,29 @@ function connect() {
     const msg = JSON.parse(m.data);
     switch (msg.ch) {
       case "hello":
-        chain.records = []; chain.checked = 0; chain.broken = null; cards.clear();
+        chain.records = []; chain.checked = 0; chain.broken = null; cards.clear(); decisionCount = { ok: 0, no: 0 };
         chain.from = msg.records.length ? msg.records[0].seq : 0;
         chain.total = msg.chain.len;
-        $("decisions").replaceChildren(el("div", "empty", "No payment requests yet. Every one the agent makes lands here with the rule that decided it."));
-        grid?.setGridOption("rowData", []);
+        $("decisions").replaceChildren(el("div", "placeholder", "No payment requests yet. Each one the agent makes appears here with the rule that decided it."));
+        countLine();
         for (const r of msg.records) addRecord(r, false);
+        renderLedger();
         renderState(msg.state);
         renderDemo(msg.demo);
-        $("log").replaceChildren();
+        $("log").replaceChildren(el("div", "placeholder", "No run yet. Start one above."));
         for (const e of msg.run_log) agentEvent(e, false);
         if (!msg.demo.busy && msg.run_log.length) setStatus(msg.run_log[msg.run_log.length - 1].type);
         showVerdict();
         break;
       case "audit": addRecord(msg.record, true); chain.total = Math.max(chain.total, msg.len); break;
       case "state": renderState(msg.state); break;
-      case "agent": agentEvent(msg.event, msg.event.type === "started"); break;
+      case "agent": agentEvent(msg.event, msg.event.type === "started" || demo.busy); break;
       case "demo": renderDemo(msg.demo); break;
       case "lagged": es.close(); connect(); break;
     }
   };
   es.onerror = () => { setStatus("reconnecting"); };
 }
-makeGrid();
 connect();
 </script>
 </body>
