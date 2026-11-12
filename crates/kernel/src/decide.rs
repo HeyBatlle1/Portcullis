@@ -7,7 +7,7 @@
 //! into changing its mind.
 
 use crate::ledger::{Commitment, Ledger, Reservation};
-use crate::policy::{Policy, Rule, RuleId};
+use crate::policy::{Policy, Rule, RuleId, Scope};
 use crate::proposal::{Adjudication, Authorization, Decision, Payment, Proposal};
 use crate::types::{RecipientId, Timestamp};
 
@@ -123,6 +123,11 @@ fn judge(
     for rule in &policy.rules {
         apply(rule, ledger, minor, now)?;
     }
+    // Last, wherever the policy lists it: every limit above has had its say,
+    // so what is left is a payment that broke nothing except not being a bill.
+    if policy.commitments_only() {
+        return Err(RuleId::CommitmentRequired);
+    }
 
     Ok((to, Authorization::Discretionary))
 }
@@ -170,7 +175,9 @@ fn check_commitment(
     Ok(())
 }
 
-/// A commitment draw checks the balance and the floor, and nothing else.
+/// A commitment draw checks the balance and the account's own rules, and
+/// nothing else. The money it draws is its own earmark, so the floor is
+/// measured from everything not already on its way out.
 fn settle_against_commitment(
     ledger: &Ledger,
     policy: &Policy,
@@ -181,14 +188,23 @@ fn settle_against_commitment(
     if pool < minor {
         return Err(RuleId::InsufficientFunds);
     }
-    for rule in &policy.rules {
-        if let Rule::BalanceFloor { minor: floor } = rule {
-            if pool.saturating_sub(minor) < *floor {
-                return Err(RuleId::BreachesBalanceFloor);
-            }
-        }
+    for rule in policy.rules.iter().filter(|r| r.scope() == Scope::Account) {
+        account(rule, pool, minor)?;
     }
     Ok(Authorization::Commitment(c.id.clone()))
+}
+
+/// An account rule against a payment of `minor` out of `free`. What counts as
+/// free is the caller's to say; it differs by path, the rule does not.
+fn account(rule: &Rule, free: u64, minor: u64) -> Result<(), RuleId> {
+    match rule {
+        Rule::BalanceFloor { minor: floor } if free.saturating_sub(minor) < *floor => {
+            Err(RuleId::BreachesBalanceFloor)
+        }
+        // The asset allowlist is checked before either path, so that a wrong
+        // asset is named as one whatever else is wrong with the proposal.
+        _ => Ok(()),
+    }
 }
 
 /// One rule against one proposal.
@@ -210,14 +226,11 @@ fn apply(rule: &Rule, ledger: &Ledger, minor: u64, now: Timestamp) -> Result<(),
         // Measured from what is actually free: money earmarked for approved
         // bills is not there to spend, so spending down to the floor through
         // it would leave those bills unpayable.
-        Rule::BalanceFloor { minor: floor } => fail(
-            ledger.available(now).saturating_sub(minor) < *floor,
-            RuleId::BreachesBalanceFloor,
-        ),
-        Rule::AssetAllowlist { .. } => Ok(()), // checked before either path
-        // Only ever reached on the discretionary path: a commitment draw
-        // returned before the rules were applied.
-        Rule::CommitmentsOnly {} => Err(RuleId::CommitmentRequired),
+        Rule::BalanceFloor { .. } | Rule::AssetAllowlist { .. } => {
+            account(rule, ledger.available(now), minor)
+        }
+        // A mode, not a limit: judged after this loop, in `judge`.
+        Rule::CommitmentsOnly {} => Ok(()),
         Rule::TimeOfDay {
             from_minute,
             until_minute,
