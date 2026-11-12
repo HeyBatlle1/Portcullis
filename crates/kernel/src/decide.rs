@@ -57,6 +57,7 @@ pub fn adjudicate(
                 proposal: proposal.id.clone(),
                 to,
                 amount: proposal.amount.clone(),
+                digest: proposal.digest(),
             };
             Adjudication::new(
                 proposal,

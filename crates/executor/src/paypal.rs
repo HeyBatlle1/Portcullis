@@ -158,10 +158,18 @@ pub enum Unpayable {
 /// asset's declared decimals must agree, or `1.00` might go out as `100`.
 const CURRENCIES: &[(&str, u8)] = &[("USD", 2)];
 
-/// The one fixed note on every payout. The agent's `purpose` never reaches the
+/// How every payout's note begins. The agent's `purpose` never reaches the
 /// recipient: it is attacker-controllable text, and a payment memo is a
 /// delivery channel straight into someone else's inbox.
 pub const NOTE: &str = "Payment via Portcullis";
+
+/// The note on a payout: the fixed words, then the digest of the proposal
+/// the gate allowed. PayPal keeps the note with the payout, so PayPal's
+/// record names the decision in the audit chain and the chain (which holds
+/// the batch id) names the payout. Neither side has to be believed alone.
+pub fn note(p: &Payment) -> String {
+    format!("{NOTE}. Decision {}", portcullis_kernel::hex(&p.digest))
+}
 
 /// Pure. Build the exact request for a payment, or say why there is none.
 pub fn payout_request(p: &Payment) -> Result<CreatePayout, Unpayable> {
@@ -201,7 +209,7 @@ pub fn payout_request(p: &Payment) -> Result<CreatePayout, Unpayable> {
                 currency: symbol.to_string(),
             },
             sender_item_id: id.to_string(),
-            note: NOTE.into(),
+            note: note(p),
         }],
     })
 }
