@@ -477,7 +477,7 @@ impl<R: Rail + 'static> Siege<R> {
     }
 
     /// Northline's side, after the shift starts: when the payout that paid
-    /// this bill has left Lakeshore's balance, record it against the invoice,
+    /// this bill has reached Northline, record it against the invoice,
     /// so the invoice reads paid in PayPal too. It reads the chain and the
     /// gate; it can change neither.
     async fn watch_invoice(self: Arc<Self>, bill: String, issued: Issued) {
@@ -511,7 +511,10 @@ impl<R: Rail + 'static> Siege<R> {
             let pid = portcullis_kernel::ProposalId::new(pid);
             let exec = self.gate.with_state(|s| s.execution(&pid).cloned()).await;
             let batch = match exec {
-                Some(Execution::Settled { batch_id } | Execution::Done { batch_id }) => batch_id,
+                // Paid, not merely settled: an unclaimed payout has left
+                // Lakeshore's balance but Northline does not have it, and
+                // may never. The invoice reads paid when the vendor is.
+                Some(Execution::Paid { batch_id }) => batch_id,
                 _ => continue,
             };
             let now = (self.clock)();

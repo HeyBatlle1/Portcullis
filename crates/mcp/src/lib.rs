@@ -387,7 +387,9 @@ and in-flight payments are set aside."
     #[tool(
         description = "Scheduled payments. An `open` one you may draw against by naming \
 it in propose_payment's `commitment` field; each is a specific recipient, amount and window. \
-One that is `paying` or `paid` has already been drawn, by you or by someone else."
+One that is `paying` or `paid` has already been drawn, by you or by someone else. \
+One that is `returned` was paid and the money came back; it cannot be drawn again, and \
+the owner needs to know."
     )]
     async fn list_commitments(&self) -> Result<CallToolResult, ErrorData> {
         let now = (self.clock)();
@@ -415,6 +417,7 @@ One that is `paying` or `paid` has already been drawn, by you or by someone else
                                 CommitmentState::Open => "open",
                                 CommitmentState::Drawing => "paying",
                                 CommitmentState::Consumed => "paid",
+                                CommitmentState::Returned => "returned",
                                 CommitmentState::Expired => "expired",
                             },
                             "recipient": c.recipient,

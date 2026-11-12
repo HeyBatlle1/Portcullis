@@ -627,13 +627,13 @@ function renderState(s) {
     const t = el("table", "bills"); const h = t.createTHead().insertRow();
     for (const [c, cls] of [["Bill"], ["Pay to"], ["Amount", "num"], ["Status"], ["Payable until"]]) h.append(el("th", cls, c));
     const funded = Object.fromEntries(s.forecast.map((f) => [f.id, f.funded]));
-    const order = { Open: 0, Drawing: 1, Consumed: 2, Expired: 3 };
+    const order = { Open: 0, Drawing: 1, Returned: 2, Consumed: 3, Expired: 4 };
     const rows = [...s.commitments].sort((a, b) => (order[a.state] - order[b.state]) || (b.closes - a.closes));
     const tb = t.createTBody();
     for (const c of rows.slice(0, 8)) {
       const tr = tb.insertRow(); if (c.state === "Consumed" || c.state === "Expired") tr.className = "closed";
       const status = { Open: c.drawable ? "Approved, payable now" : `Approved, payable from ${fmtDate(c.opens)}`,
-                       Drawing: "Payment in flight", Consumed: "Paid", Expired: "Withdrawn or lapsed" }[c.state] || c.state;
+                       Drawing: "Payment in flight", Consumed: "Paid", Returned: "Paid, then returned: still owed", Expired: "Withdrawn or lapsed" }[c.state] || c.state;
       const cells = [[c.id, "mono"], [c.recipient, "addr"], [fmtDec(c.amount), "num"],
                      [status + (c.state === "Open" && funded[c.id] === false ? " (not covered by balance)" : "")], [fmtDate(c.closes)]];
       for (const [v, cls] of cells) { const td = tr.insertCell(); td.textContent = v; if (cls) td.className = cls; }
@@ -684,9 +684,10 @@ function addDecision(r, animate) {
 function refreshTracks() {
   for (const [id, t] of cards) {
     const e = executions[id]; const state = e ? e.state : "pending";
-    const steps = [["Queued", true], ["Sent to PayPal", ["in_flight", "settled", "done"].includes(state)], ["Settled", ["settled", "done"].includes(state)]];
+    const steps = [["Queued", true], ["Sent to PayPal", ["in_flight", "settled", "paid", "returned"].includes(state)], ["Settled", ["settled", "paid", "returned"].includes(state)]];
     t.replaceChildren();
     steps.forEach(([n, done], i) => { if (i) t.append(el("i", null, "→")); t.append(el("span", done ? "done" : "", n)); });
+    if (state === "returned") t.append(el("span", "bad", "Returned by PayPal: credited back, bill still owed"));
     if (state === "released") t.append(el("span", "bad", "Released: " + e.reason));
     if (state === "unresolved") t.append(el("span", "bad", "Held for a human: " + e.reason));
   }

@@ -239,7 +239,7 @@ token. What they found, and what happened to it:
 | Withdrawing a bill while its payment is in flight does nothing; if the payout then fails, the bill reopens | Open. The money would still go only to the approved payee, for the approved amount, once |
 | A revocation made during a drive pass does not stop a send already queued in that pass | Open, library-level: the hosted demo never changes policy while running |
 | Two drive passes at once could both submit a payment | Open, library-level: the server runs one loop; PayPal's `PayPal-Request-Id` makes the second a no-op |
-| An `UNCLAIMED` payout counts as paid; if PayPal later returns it, the money is credited back but the bill and the vendor's invoice stay paid | Open: records, not money |
+| An `UNCLAIMED` payout counts as paid; if PayPal later returns it, the money is credited back but the bill and the vendor's invoice stay paid | Fixed 2026-11-12: a returned payment's bill reads `returned`, not paid, and does not reopen (`a_returned_payout_leaves_its_bill_returned_not_paid_and_not_reopened`); the vendor's invoice is recorded paid only once the payout is claimed |
 | The audit desk renders model-written markdown images and links, and has no full CSP (AG Studio's bundle) | Open. Only token holders write the text it reads; nothing secret is on that origin |
 | The sentinel answers every burst of refusals, so a stream of refusals spends watchers' allowances | Open: bounded by those allowances |
 | The `rails/evm` branch trusts the RPC node's chain id and domain separator | Open, branch only: compute the domain locally before signing |

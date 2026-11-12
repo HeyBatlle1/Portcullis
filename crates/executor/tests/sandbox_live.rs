@@ -61,7 +61,7 @@ async fn one_dollar_through_the_whole_gate() {
             .unwrap();
         if matches!(
             ex,
-            Execution::Done { .. }
+            Execution::Paid { .. }
                 | Execution::Settled { .. }
                 | Execution::Released { .. }
                 | Execution::Unresolved { .. }
@@ -69,7 +69,7 @@ async fn one_dollar_through_the_whole_gate() {
             println!("final: {ex:?}");
             assert!(matches!(
                 ex,
-                Execution::Done { .. } | Execution::Settled { .. }
+                Execution::Paid { .. } | Execution::Settled { .. }
             ));
             return;
         }

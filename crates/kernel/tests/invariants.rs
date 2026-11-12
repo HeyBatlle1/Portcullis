@@ -270,6 +270,7 @@ fn rolling_window_and_velocity_count_settled_history() {
         recipient: rid("vendor@example.com"),
         minor: 4_000,
         at: T0 - 3600,
+        via: Authorization::Discretionary,
     });
     let p = pol(
         vec![standing("vendor@example.com", T0)],
