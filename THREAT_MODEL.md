@@ -214,6 +214,17 @@ instead of a 404, and counted: the path and the time, nothing else, the last
 never shadows a real route, and it touches nothing in the gate, the ledger or
 the chain.
 
+### PayPal's webhook
+
+`/paypal/webhook` is unauthenticated on purpose. Its body is never read: a
+POST wakes the settlement loop, which then asks PayPal, over its own OAuth
+connection, about each payment in flight. Verifying PayPal's signature would
+only matter if the gate believed the message, and it does not; a forged
+"payout succeeded" settles nothing, because settling takes PayPal's answer to
+our own question. What the route gives a stranger is the ability to make the
+gate check sooner. The loop keeps at least a second between passes, so that
+is at most one status read per in-flight payment per second.
+
 ## Red team, 2026-11-11
 
 Four agents attacked the code and the hosted demo the day before the
@@ -380,6 +391,14 @@ This is a hackathon build. Honest status:
   `Pending` is recoverable — resubmitting with the same `PayPal-Request-Id`
   returns the original — but only if the reservation itself survived, and today
   it does not survive a restart.
+- Nothing in memory is pruned. The chain, the settlement history the rate
+  rules count, the execution map and the proposal-owner map all grow for as
+  long as the process lives. Each entry is bounded and the hosted demo's
+  daily caps bound how many there are, but a long-lived deployment needs a
+  window on the settled history and a checkpoint for the rest.
+- With `PORTCULLIS_CHAIN_FILE` set the record survives a restart; the ledger,
+  reservations and executions still do not, and the chain's `boot` record
+  says so.
 - Rate-limiting on amendment frequency is designed but not built.
 - **The hosted demo's policy is loaded from `demo/seed.json`, not replayed from a
   signed log.** The kernel's `PolicyLog` is built and tested, but there is no

@@ -22,7 +22,9 @@
 #![forbid(unsafe_code)]
 
 pub mod console;
+pub mod doorbell;
 pub mod edge;
+pub mod keep;
 pub mod money;
 pub mod seed;
 pub mod siege;

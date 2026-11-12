@@ -603,6 +603,16 @@ function ruleItem(rule) {
   return li;
 }
 let executions = {};
+/* The same progress, read from the chain: after a restart the gate has
+   forgotten a payment's state, and the record has not. */
+const fromChain = {};
+function noteExecution(r) {
+  let b; try { b = JSON.parse(r.body); } catch { return; }
+  const e = b.event; if (!e || !e.proposal) return;
+  const state = { submitted: "in_flight", settled: "settled", credited_back: "returned",
+                  released: "released", unresolved: "unresolved" }[e.event];
+  if (state) fromChain[e.proposal] = { state, reason: e.reason };
+}
 function renderState(s) {
   $("mBal").textContent = fmtDec(s.balance);
   $("mEnc").textContent = fmtDec(s.encumbered);
@@ -683,7 +693,7 @@ function addDecision(r, animate) {
 }
 function refreshTracks() {
   for (const [id, t] of cards) {
-    const e = executions[id]; const state = e ? e.state : "pending";
+    const e = executions[id] || fromChain[id]; const state = e ? e.state : "pending";
     const steps = [["Queued", true], ["Sent to PayPal", ["in_flight", "settled", "paid", "returned"].includes(state)], ["Settled", ["settled", "paid", "returned"].includes(state)]];
     t.replaceChildren();
     steps.forEach(([n, done], i) => { if (i) t.append(el("i", null, "→")); t.append(el("span", done ? "done" : "", n)); });
@@ -876,6 +886,7 @@ function addRecord(r, animate) {
   chain.total = Math.max(chain.total, r.seq + 1);
   if (animate) prependLedger(r);
   if (r.kind === "decision") addDecision(r, animate);
+  if (r.kind === "execution") { noteExecution(r); refreshTracks(); }
   verifyNew();
 }
 function connect() {
