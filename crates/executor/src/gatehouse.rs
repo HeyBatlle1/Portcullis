@@ -36,8 +36,11 @@ pub enum Execution {
     /// The money left our balance. Still watched, because an unclaimed payout
     /// can come back.
     Settled { batch_id: String },
-    /// Nothing more will happen.
-    Done { batch_id: String },
+    /// The receiver has it. Nothing more will happen.
+    Paid { batch_id: String },
+    /// It settled and then came back. The money is credited; the bill it
+    /// paid is not paid. Nothing more will happen without a human.
+    Returned { batch_id: String },
     /// Never paid; reservation released.
     Released { reason: String },
     /// We cannot establish what happened and can no longer safely find out.
@@ -233,7 +236,8 @@ impl<R: Rail> Gatehouse<R> {
                         work.push(Work::Observe(id, batch_id, false))
                     }
                     Execution::Settled { batch_id } => work.push(Work::Observe(id, batch_id, true)),
-                    Execution::Done { .. }
+                    Execution::Paid { .. }
+                    | Execution::Returned { .. }
                     | Execution::Released { .. }
                     | Execution::Unresolved { .. } => {}
                 }
@@ -386,7 +390,7 @@ fn apply_step(
         Step::Settle { final_ } => match s.ledger.settle(id, now) {
             Ok(_) => {
                 let next = if final_ {
-                    Execution::Done {
+                    Execution::Paid {
                         batch_id: b.clone(),
                     }
                 } else {
@@ -419,25 +423,23 @@ fn apply_step(
                 reason,
             })
         }
-        Step::CreditBack => {
-            let minor = s
-                .ledger
-                .settled
-                .iter()
-                .find(|x| &x.proposal == id)
-                .map(|x| x.minor)
-                .unwrap_or(0);
-            s.ledger.credit(minor);
-            s.executions
-                .insert(id.clone(), Execution::Done { batch_id: b });
-            Some(Event::CreditedBack {
+        Step::CreditBack => match s.ledger.credit_back(id) {
+            Ok(minor) => {
+                s.executions
+                    .insert(id.clone(), Execution::Returned { batch_id: b });
+                Some(Event::CreditedBack {
+                    proposal: id.clone(),
+                    minor,
+                })
+            }
+            Err(e) => Some(Event::Anomaly {
                 proposal: id.clone(),
-                minor,
-            })
-        }
+                detail: format!("credit back refused by ledger: {e:?}"),
+            }),
+        },
         Step::Done => {
             s.executions
-                .insert(id.clone(), Execution::Done { batch_id: b });
+                .insert(id.clone(), Execution::Paid { batch_id: b });
             None
         }
         Step::Anomaly => Some(Event::Anomaly {

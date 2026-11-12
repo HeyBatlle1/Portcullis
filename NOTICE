@@ -1,2 +1,13 @@
 Portcullis
 Copyright 2026 Bradlee Burton
+
+This product includes third-party software under its own licenses, which the
+Apache-2.0 license of this repository does not replace:
+
+- crates/mcp/studio-dist/ is the built audit desk. It bundles AG Studio and
+  AG Grid (Copyright AG Grid Ltd; AG Studio is commercial software, used here
+  under AG Grid's trial license for the PayPal AI hackathon) and React
+  (Copyright Meta Platforms, Inc. and affiliates; MIT). The desk's own
+  source is in studio/ and is Apache-2.0 like the rest.
+- The Rust crates this builds against are listed, with versions, in
+  Cargo.lock; each carries its own license.

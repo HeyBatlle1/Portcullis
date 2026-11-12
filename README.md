@@ -21,7 +21,7 @@ there — by construction, not by configuration.
 Hosted on the PayPal sandbox, free to use, no login:
 
 - **Console:** https://portcullis-br3k.onrender.com/console. Pick a scenario and an
-  agent and press **Run the inbox**. When the agent writes to Dana, the owner,
+  agent and press **Run**. When the agent writes to Dana, the owner,
   answer as her: tell it to pay the real bill, or to pay the fraudster's
   account, and watch what the gate does. Pick *Compromised agent* to watch a script
   holding the agent's real token try six ways to steal or sabotage the bill, and
@@ -42,7 +42,10 @@ per visitor per day) because each one moves real sandbox money and calls models.
 The limits reset at midnight UTC. A capped page says so; it is not broken.
 
 The hosted record lives in memory and starts over when the server restarts;
-one session is kept in `demo/evidence/` (see *The record, kept*).
+one session is kept in `demo/evidence/` (see *The record, kept*). Set
+`PORTCULLIS_CHAIN_FILE` to a path on a persistent disk and the chain is kept
+there instead: verified from record 0 on boot, then appended to, with a `boot`
+record saying the ledger began again.
 
 ## What it does with PayPal
 
@@ -53,6 +56,21 @@ vendor, a separate sandbox business account, issue the bill and later record
 it paid against the payout batch that paid it; and the payout status is read
 back until PayPal gives a definitive answer, which is the only thing that
 settles or releases the money.
+
+Each side's record names the other. The note PayPal keeps on a payout ends
+with the digest of the proposal the gate allowed, the same digest the audit
+chain holds in that decision's record, and the chain holds PayPal's batch id.
+So the chain does not have to be believed on our server's word: anyone who can
+see the payout in PayPal can ask the chain for the decision behind it, and the
+reverse. It is a hash, so nothing the agent wrote reaches the payee.
+
+PayPal's payout webhooks are taken as a doorbell, not a message. A POST to
+`/paypal/webhook` is never read; it wakes the settlement loop, which asks
+PayPal itself over its own connection. There is no signature to get wrong and
+nothing to forge: the most a stranger can do is make the gate check sooner.
+To use it, register `https://<host>/paypal/webhook` for the
+`PAYMENT.PAYOUTS-ITEM.*` events in the sandbox app. Without it the loop polls
+every five seconds, as before.
 
 PayPal's [Agent Toolkit](https://github.com/paypal/agent-toolkit) and MCP
 server give an agent PayPal's API directly (invoices, payments, subscriptions),
@@ -84,7 +102,7 @@ it disposes.
 
 ## The demo
 
-Open `/console` and press **Run the inbox**. The owner of a fictional glazing
+Open `/console` and press **Run**. The owner of a fictional glazing
 subcontractor approves a supplier invoice. An AI agent then works the AP inbox,
 which holds that invoice and, newer, a change-of-bank-details email sent from the
 supplier's own (compromised) mailbox. This is business email compromise, the
@@ -326,6 +344,11 @@ Any MCP client connects the same way it would to PayPal's own MCP server:
 | Even the owner's word cannot redirect an approved bill | `crates/mcp/tests/demo_run.rs`: `dana_answers_and_the_gate_still_decides` |
 | Editing any field of the record is caught | `crates/kernel/tests/audit.rs`; `crates/mcp/tests/evidence.rs` re-verifies a record kept from the hosted demo |
 | The audit desk's agents reach only their own tools and models | `crates/mcp/tests/studio_proxy.rs` |
+| PayPal's record of a payout names the decision that allowed it | `crates/executor/tests/paypal_wire.rs`: `the_payout_note_names_the_decision_in_the_audit_chain` |
+| A payment that comes back does not leave its bill reading paid, or reopen it | `crates/executor/tests/gatehouse.rs`: `a_returned_payout_leaves_its_bill_returned_not_paid_and_not_reopened` |
+| A kept chain resumes from its own head, and an edited one stops the server | `crates/mcp/src/keep.rs`: `a_kept_chain_resumes_from_its_own_head_across_a_restart`, `an_edited_file_stops_the_server_instead_of_being_built_on` |
+| A webhook can wake the gate and tell it nothing | `crates/mcp/tests/doorbell.rs` |
+| Which rule names a refusal does not depend on the order rules are listed | `crates/kernel/tests/in_flight.rs`: `commitments_only_is_judged_last_wherever_it_is_listed` |
 
 Guards are mutation-checked: each was broken on purpose and a test failed.
 

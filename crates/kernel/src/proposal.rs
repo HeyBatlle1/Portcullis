@@ -116,6 +116,12 @@ pub struct Payment {
     pub proposal: ProposalId,
     pub to: RecipientId,
     pub amount: Amount,
+    /// [`Proposal::digest`] of the proposal this pays. The rail writes it
+    /// into its own record of the payment, so the rail's record and the
+    /// audit chain name each other: a third party holding either can ask
+    /// for the other. A hash, so nothing the agent wrote reaches the payee.
+    #[serde(serialize_with = "as_hex")]
+    pub digest: Hash,
 }
 
 /// A decision bound to the inputs that produced it.

@@ -131,7 +131,7 @@ async fn allowed_payment_is_sent_once_and_settles() {
     g.drive(T0 + 60).await; // observe SUCCESS
     assert_eq!(
         exec(&g, "p1").await,
-        Execution::Done {
+        Execution::Paid {
             batch_id: "BATCH1".into()
         }
     );
@@ -295,9 +295,11 @@ async fn an_unclaimed_payout_settles_then_credits_back_when_returned() {
     let ev = g.drive(T0 + 30 * 86_400).await;
     assert!(matches!(ev[..], [Event::CreditedBack { minor: 4_200, .. }]));
     assert_eq!(money(&g).await, (10_000, 0));
+    // Not "paid": the money is back, so the payment's last word is that it
+    // was returned.
     assert_eq!(
         exec(&g, "p1").await,
-        Execution::Done {
+        Execution::Returned {
             batch_id: "BATCH1".into()
         }
     );
@@ -316,6 +318,11 @@ async fn an_unreadable_status_changes_nothing() {
         }
     );
     assert_eq!(money(&g).await, (10_000, 4_200));
+}
+
+async fn bill_state(g: &Gatehouse<FakeRail>, id: &str) -> CommitmentState {
+    g.with_state(|s| s.ledger.commitment(&CommitmentId::new(id)).unwrap().state)
+        .await
 }
 
 // ── operator approvals ──────────────────────────────────────────────────────
@@ -398,4 +405,42 @@ async fn the_owner_funds_each_approved_bill_so_the_demo_never_runs_dry() {
     assert_eq!(topped, 20 * 1_285 - (10_000 - 2_500));
     // And no more: once the bills are paid, nothing is free above the floor.
     assert_eq!(money(&g).await, (2_500, 0));
+}
+
+/// The open row in the threat model, closed: a payout that settles and then
+/// comes back does not leave its bill reading paid. It does not reopen
+/// either. An address that returned a payment is the owner's question.
+#[tokio::test]
+async fn a_returned_payout_leaves_its_bill_returned_not_paid_and_not_reopened() {
+    let g = gate(
+        FakeRail::default()
+            .on_submit(accepted())
+            .on_observe(ItemStatus::Unclaimed)
+            .on_observe(ItemStatus::Returned),
+    );
+    g.schedule(invoice("INV-1", 4_200)).await.unwrap();
+    let mut pay = proposal("p1", VENDOR, 4_200);
+    pay.against = Some(CommitmentId::new("INV-1"));
+    assert!(g.propose(&pay, T0).await.decision().is_allowed());
+    g.drive(T0 + 1).await;
+    g.drive(T0 + 2).await;
+    assert_eq!(bill_state(&g, "INV-1").await, CommitmentState::Consumed);
+
+    g.drive(T0 + 30 * 86_400).await;
+    assert_eq!(bill_state(&g, "INV-1").await, CommitmentState::Returned);
+    assert_eq!(money(&g).await, (10_000, 0));
+
+    // Nothing an agent can do pays it again.
+    let mut again = proposal("p2", VENDOR, 4_200);
+    again.against = Some(CommitmentId::new("INV-1"));
+    assert_eq!(
+        g.propose(&again, T0 + 30 * 86_400)
+            .await
+            .decision()
+            .refused_by(),
+        Some(RuleId::CommitmentNotOpen)
+    );
+    // And a further pass credits nothing more.
+    assert!(g.drive(T0 + 31 * 86_400).await.is_empty());
+    assert_eq!(money(&g).await, (10_000, 0));
 }

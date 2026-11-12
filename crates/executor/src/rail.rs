@@ -60,7 +60,7 @@ pub enum Step {
     CreditBack,
     /// Nothing to do yet.
     Wait,
-    /// Settled and claimed, or credited back: nothing more will happen.
+    /// Settled, and now claimed: nothing more will happen.
     Done,
     /// A transition that should not happen, like FAILED after SUCCESS. Touch
     /// nothing; a human looks at it.

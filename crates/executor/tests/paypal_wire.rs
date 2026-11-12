@@ -71,7 +71,22 @@ fn the_agents_purpose_never_reaches_the_recipient() {
     let body = payout_request(&payment_to("vendor@example.com", 100)).unwrap();
     let wire = serde_json::to_string(&body).unwrap();
     assert!(!wire.contains("IGNORE"));
-    assert_eq!(body.items[0].note, NOTE);
+    assert!(body.items[0].note.starts_with(NOTE));
+}
+
+/// PayPal's own record of the payout names the decision that allowed it:
+/// the note ends with the digest the audit chain holds for that proposal,
+/// and it is a digest of everything proposed, the purpose included.
+#[test]
+fn the_payout_note_names_the_decision_in_the_audit_chain() {
+    let p = payment_to("vendor@example.com", 100);
+    let body = payout_request(&p).unwrap();
+    let digest = hex(&p.digest);
+    assert_eq!(body.items[0].note, format!("{NOTE}. Decision {digest}"));
+    assert_eq!(digest.len(), 64);
+    // The same bytes the adjudication serializes for the chain.
+    let logged = serde_json::to_value(&p).unwrap();
+    assert_eq!(logged["digest"], digest);
 }
 
 #[test]

@@ -25,6 +25,11 @@ pub enum CommitmentState {
     Drawing,
     /// Already paid.
     Consumed,
+    /// Paid, and the money came back: unclaimed, refunded or reversed. The
+    /// vendor is still owed, but the bill does not reopen on its own. An
+    /// address that just returned a payment is a question for the human who
+    /// approved it, not something for an agent to try again.
+    Returned,
     /// Window closed unfulfilled. Funds returned to the pool.
     Expired,
 }
@@ -77,6 +82,9 @@ pub struct Settled {
     pub recipient: RecipientId,
     pub minor: u64,
     pub at: Timestamp,
+    /// What it drew on, so a payment that comes back can say which bill is
+    /// unpaid again.
+    pub via: Authorization,
 }
 
 /// Why a settlement transition was refused. Each is a bookkeeping fault the
@@ -86,6 +94,9 @@ pub enum LedgerError {
     /// No reservation for this proposal. Either it was never allowed, or it has
     /// already been settled or released — acting on it again would double-count.
     NoReservation(ProposalId),
+    /// No settled payment for this proposal, so there is nothing to have
+    /// come back.
+    NotSettled(ProposalId),
 }
 
 /// One ledger per asset. Cross-asset arithmetic does not exist in this crate.
@@ -236,6 +247,7 @@ impl Ledger {
             recipient: r.recipient,
             minor: r.minor,
             at,
+            via: r.via,
         };
         self.settled.push(s.clone());
         Ok(s)
@@ -249,11 +261,28 @@ impl Ledger {
         Ok(r)
     }
 
-    /// Money pushed in: funding, or a settled payment that came back
-    /// (unclaimed, returned, reversed). History is not rewritten; a returned
-    /// payment still happened, and still counted against the rate limits.
+    /// Money pushed in: the owner funding the account.
     pub fn credit(&mut self, minor: u64) {
         self.balance = self.balance.saturating_add(minor);
+    }
+
+    /// A settled payment came back (unclaimed, refunded, reversed). The money
+    /// returns to the balance and the bill it paid stops reading as paid.
+    /// History is not rewritten: the payment still happened, and still
+    /// counts against the rate limits. Returns the amount credited.
+    ///
+    /// The caller records that it has done this; calling it twice for one
+    /// payment would credit twice.
+    pub fn credit_back(&mut self, id: &ProposalId) -> Result<u64, LedgerError> {
+        let s = self
+            .settled
+            .iter()
+            .find(|s| &s.proposal == id)
+            .ok_or_else(|| LedgerError::NotSettled(id.clone()))?;
+        let (minor, via) = (s.minor, s.via.clone());
+        self.credit(minor);
+        self.set_commitment(&via, CommitmentState::Returned);
+        Ok(minor)
     }
 
     fn take_reservation(&mut self, id: &ProposalId) -> Result<Reservation, LedgerError> {

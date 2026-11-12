@@ -108,9 +108,37 @@ pub enum Rule {
     /// works, and it is what stops a duplicate: once a bill is paid, a second
     /// payment of the same amount to the same payee matches nothing and is
     /// refused, instead of quietly going through as an ordinary payment.
-    /// Applied in order with the other discretionary rules, so a proposal that
-    /// breaks an earlier rule is refused by that one.
+    /// Judged after every other rule, wherever the policy lists it, so a
+    /// proposal that also breaks a limit is refused by the limit: "over the
+    /// per-transaction limit" says more than "not an approved bill".
     CommitmentsOnly {},
+}
+
+/// Which payments a rule binds. Decided here, once, for every rule: adding a
+/// rule kind without saying what it binds does not compile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// A property of the account. Binds every payment, an approved bill's
+    /// included: the human approved the bill, not the account going under.
+    Account,
+    /// A limit on the agent's own discretion. An approved bill is not
+    /// discretion, so these do not bind a draw on one.
+    Discretionary,
+    /// Not a limit but a mode: there is no discretionary spending at all.
+    Mode,
+}
+
+impl Rule {
+    pub fn scope(&self) -> Scope {
+        match self {
+            Rule::BalanceFloor { .. } | Rule::AssetAllowlist { .. } => Scope::Account,
+            Rule::PerTransactionMax { .. }
+            | Rule::RollingWindowMax { .. }
+            | Rule::VelocityMax { .. }
+            | Rule::TimeOfDay { .. } => Scope::Discretionary,
+            Rule::CommitmentsOnly {} => Scope::Mode,
+        }
+    }
 }
 
 /// A recipient the agent may pay repeatedly, with no commitment naming it.
@@ -158,6 +186,11 @@ pub struct Policy {
 }
 
 impl Policy {
+    /// Whether this policy pays approved bills and nothing else.
+    pub fn commitments_only(&self) -> bool {
+        self.rules.iter().any(|r| r.scope() == Scope::Mode)
+    }
+
     pub fn standing_for(&self, recipient: &RecipientId) -> Option<&StandingRecipient> {
         self.standing.iter().find(|s| &s.recipient == recipient)
     }

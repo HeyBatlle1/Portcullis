@@ -499,6 +499,27 @@ fn commitments_only_yields_to_an_earlier_rule() {
     );
 }
 
+/// The same answers with the mode listed first: where `CommitmentsOnly` sits
+/// in the policy does not decide which rule names the refusal.
+#[test]
+fn commitments_only_is_judged_last_wherever_it_is_listed() {
+    let mut l = Ledger::new(AssetId::usd(), 100_000);
+    let p = policy(vec![
+        Rule::CommitmentsOnly {},
+        Rule::PerTransactionMax { minor: 50_000 },
+    ]);
+    let big = adjudicate(&mut l, &p, &proposal("p1", VENDOR, 60_000), T0);
+    assert_eq!(
+        big.decision().refused_by(),
+        Some(RuleId::ExceedsPerTransaction)
+    );
+    let small = adjudicate(&mut l, &p, &proposal("p2", VENDOR, 100), T0);
+    assert_eq!(
+        small.decision().refused_by(),
+        Some(RuleId::CommitmentRequired)
+    );
+}
+
 /// A redirect is named as a redirect even after the bill is paid: the payee is
 /// wrong for the bill's whole life, which says more than "already paid".
 #[test]

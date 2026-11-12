@@ -52,7 +52,7 @@ pub use ledger::{
     forecast, Commitment, CommitmentForecast, CommitmentState, Ledger, LedgerError, Reservation,
     Settled,
 };
-pub use policy::{Policy, Rule, RuleId, StandingRecipient};
+pub use policy::{Policy, Rule, RuleId, Scope, StandingRecipient};
 pub use proposal::{Adjudication, Authorization, Decision, NotExecutable, Payment, Proposal};
 pub use types::{
     hex, AgentId, Amount, AssetId, CommitmentId, Duration, Hash, ProposalId, RecipientError,

@@ -12,6 +12,7 @@
 //! | `PORTCULLIS_ALLOWED_HOSTS` | public hostnames, comma separated                 |
 //! | `PORT`                     | listen port (default 8787; Render sets this)      |
 //! | `PORTCULLIS_DRIVE_SECS`    | settlement poll interval (default 5)              |
+//! | `PORTCULLIS_CHAIN_FILE`    | optional: keep the audit chain in this file and resume it on boot |
 //! | `OPENROUTER_API_KEY`       | enables the demo agent on the console             |
 //! | `PAYPAL_VENDOR_CLIENT_ID/SECRET` | the vendor's sandbox app; siege bills become PayPal invoices |
 //! | `PAYPAL_PAYER_EMAIL`       | optional: the sandbox account Portcullis pays from, emailed the invoices |
@@ -89,6 +90,9 @@ const SIEGE_MODELS: &str = "anthropic/claude-opus-5.5,openai/gpt-5.6-terra,x-ai/
 moonshotai/kimi-k3.1-pro,google/gemini-3.8-flash,deepseek/deepseek-v4.1-flash,\
 qwen/qwen3.8-max-0902,mistralai/mistral-large-4-0,anthropic/claude-sonnet-5.5,\
 anthropic/claude-haiku-5.5,openai/gpt-5.6-luna,z-ai/glm-5.3";
+
+/// The least time between two settlement passes; see `doorbell`.
+const DRIVE_MIN_GAP: Duration = Duration::from_secs(1);
 
 fn random_token(prefix: &str) -> Result<String, String> {
     let mut bytes = [0u8; 32];
@@ -279,14 +283,46 @@ fn serve() -> Result<(), String> {
             policy,
             PayPal::new(Endpoint::sandbox(), creds),
         ));
-        let chain: portcullis_mcp::SharedAudit = Default::default();
+        // The record: kept in a file and resumed from its own head if one is
+        // configured, otherwise in memory and new with each boot.
+        let (kept, keeper) = match std::env::var("PORTCULLIS_CHAIN_FILE")
+            .ok()
+            .filter(|p| !p.trim().is_empty())
+        {
+            Some(p) => {
+                let path = std::path::PathBuf::from(p.trim());
+                let chain = portcullis_mcp::keep::load(&path)?;
+                (chain, Some(portcullis_mcp::keep::Keeper::open(&path)?))
+            }
+            None => Default::default(),
+        };
+        let resumed = (kept.len(), kept.head());
+        let chain: portcullis_mcp::SharedAudit = Arc::new(std::sync::Mutex::new(kept));
         let hub = Hub::new();
         let to_hub = hub.clone();
         let audit = portcullis_mcp::chained_sink_with(
             chain.clone(),
             Arc::new(unix_now),
-            move |r, len| to_hub.record(r, len),
+            move |r, len| {
+                if let Some(k) = &keeper {
+                    if let Err(e) = k.keep(r) {
+                        eprintln!("portcullis: record {} was not kept: {e}", r.seq);
+                    }
+                }
+                to_hub.record(r, len)
+            },
         );
+        if resumed.0 > 0 {
+            eprintln!("portcullis: resumed a kept chain of {} records", resumed.0);
+            // Said in the record itself: what follows is the same chain, and
+            // a different process with a ledger begun again from its seed.
+            audit(serde_json::json!({
+                "kind": "boot", "at": unix_now(), "action": "resumed",
+                "records": resumed.0, "head": portcullis_kernel::hex(&resumed.1),
+                "note": "the server restarted: the record continues from its kept head; \
+the ledger and its bills began again from the seed",
+            }));
+        }
         let demo_on = demo.is_some();
         // The siege shares the demo's key, scenario and endpoints.
         let siege = demo.as_ref().map(|d| {
@@ -333,6 +369,8 @@ fn serve() -> Result<(), String> {
             Some(s) => router.merge(portcullis_mcp::siege::routes(s)),
             None => router,
         };
+        let bell = portcullis_mcp::doorbell::Doorbell::new();
+        let router = router.merge(portcullis_mcp::doorbell::routes(bell.clone()));
         if let Ok(k) = std::env::var("PORTCULLIS_JUDGE_KEY") {
             portcullis_mcp::visitor::set_judge_key(k.trim())?;
             println!("judges' pass: on");
@@ -347,13 +385,22 @@ fn serve() -> Result<(), String> {
         // The settlement loop. Decisions happen on request; money moves here.
         let driver = gate.clone();
         let log = audit.clone();
+        // It runs on a timer, and sooner when PayPal's webhook rings the
+        // bell; either way it asks PayPal itself. See `doorbell`.
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(Duration::from_secs(drive_every));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
-                tick.tick().await;
+                tokio::select! {
+                    _ = tick.tick() => {}
+                    _ = bell.rung() => {}
+                }
                 for ev in driver.drive(unix_now()).await {
                     log(serde_json::json!({ "kind": "execution", "at": unix_now(), "event": ev }));
                 }
+                // However often the bell rings, PayPal is asked at most
+                // about once a second.
+                tokio::time::sleep(DRIVE_MIN_GAP).await;
             }
         });
 
